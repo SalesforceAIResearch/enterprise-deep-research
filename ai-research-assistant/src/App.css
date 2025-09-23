@@ -1,0 +1,316 @@
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden; /* Prevent horizontal scrollbars during animation */
+}
+
+.app-container {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden; /* Important to contain the panels */
+  justify-content: center; /* Center ResearchPanel when DetailsPanel is closed */
+  background-color: #edf2f7; /* Slightly darker background to contrast with the lighter left panel */
+}
+
+.app-container.details-panel-active {
+  justify-content: flex-start; /* Align panels to the left when DetailsPanel is open */
+  padding-left: 84px; /* Add space on the left when details panel is open */
+}
+
+.main-panel-wrapper {
+  /* flex-grow: 1; */ /* Remove flex-grow for default fixed width */
+  height: calc(100vh - 24px); /* Match the height of the DetailsPanel */
+  margin: 12px 0 12px 12px; /* Add margins to match DetailsPanel */
+  overflow: hidden; /* Hide overflow at container level */
+  transition: width 0.3s ease-out, margin 0.3s ease-out; /* Smoother easing */
+  width: 800px; /* Fixed width of 800px always */
+  max-width: 800px; /* Cap the width at 800px */
+  flex-shrink: 0; /* Prevent shrinking when centered */
+  border-radius: 10px; /* Slightly less rounded corners than right panel */
+  border: 1px solid #e8eaed; /* Lighter border color */
+  background-color: #f8fafc; /* Lighter background color that blends with the app background */
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04); /* Lighter shadow */
+  display: flex; /* Enable flexbox */
+  flex-direction: column; /* Stack content vertically */
+}
+
+.app-container.details-panel-active .main-panel-wrapper {
+  width: 50%; /* Adjust width when details panel is open */
+  max-width: 800px; /* Cap the width even if 50% is larger */
+  margin: 12px 6px 12px 12px; /* Add margin on sides for spacing */
+}
+
+/* Styling for the DetailsPanel component from components/DetailsPanel.js */
+/* It uses id="details-panel" */
+#details-panel {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: calc(50% - 24px); /* Adjusted width to account for margins */
+  height: calc(100vh - 24px); /* Adjust height to account for margins */
+  margin: 12px 12px 12px 0; /* Add margin on all sides except left */
+  background-color: white; /* Ensure background is opaque */
+  box-shadow: 0 6px 16px rgba(0,0,0,0.12); /* Stronger shadow for elevation effect */
+  transform: translateX(calc(100% + 24px)); /* Start off-screen to the right, accounting for margin */
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); /* More natural easing curve */
+  overflow-y: hidden; /* Don't allow scroll until fully visible */
+  border: 1px solid #e0e0e0; /* Border all around */
+  border-radius: 12px; /* Rounded corners */
+  z-index: 10; /* Ensure it's above other content */
+  display: flex; /* Use flex to ensure proper structure */
+  flex-direction: column; /* Stack header, content, footer */
+}
+
+#details-panel.visible { 
+  transform: translateX(0); /* Slide in */
+  overflow-y: hidden; /* Don't allow scrolling at container level - only for content */
+}
+
+/* Ensure the existing 'hidden' class from DetailsPanel.js doesn't interfere if not removed */
+/* #details-panel.hidden { */
+  /* transform: translateX(100%) !important; */ /* Force it off-screen if hidden class is still applied */
+/* } */ /* REMOVED as per instructions */
+
+/* Research Report Button Styling */
+.task-item .view-report-button {
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.2s ease-in-out;
+  border: none;
+  outline: none;
+  cursor: pointer;
+}
+
+.task-item .view-report-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.task-item .view-report-button:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Final report link item special styling */
+.task-item.final-report-link {
+  margin-top: 16px;
+  margin-bottom: 16px;
+  /* margin-left: 30px; */
+  background-color: #f9fafb;
+  border-radius: 8px;
+  padding: 16px;
+  padding-left: 30px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+/* Update responsive styles for the new rounded panel */
+@media (max-width: 768px) {
+  .app-container.details-panel-active {
+    padding-left: 0; /* Remove left padding on mobile */
+  }
+
+  .app-container.details-panel-active .main-panel-wrapper {
+    width: 100%; /* Stack panels on smaller screens or hide main panel */
+    max-width: none; /* Remove max-width constraint on mobile when active */
+    margin: 12px; /* Add margin on all sides for mobile */
+    margin-bottom: 0; /* No bottom margin needed */
+  }
+
+  #details-panel { 
+    width: calc(100% - 24px); /* Full width minus margins */
+    margin: 12px; /* Even margins on all sides for mobile */
+    height: calc(100vh - 24px - 12px); /* Adjust to account for 12px top margin of main panel */
+    top: 12px; /* Start 12px from the top to align with main panel */
+  }
+  
+  .app-container.details-panel-active {
+    /* Optionally, if stacking is desired on mobile when details panel is active:
+    flex-direction: column;
+    */
+  }
+
+  /* Ensure main panel is full width when details are closed on mobile */
+  .main-panel-wrapper { /* This applies when details panel is closed */
+     width: 100%; /* ResearchPanel takes full width on mobile if details are closed */
+     max-width: 100%; /* Allow full width on mobile */
+  }
+}
+
+/* Report Toolbar Styling */
+.report-toolbar-wrapper {
+  height: 40px;
+}
+
+.report-toolbar-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+  background: transparent;
+  border: none;
+  outline: none;
+}
+
+.report-toolbar-button:hover {
+  background-color: #f3f4f6;
+}
+
+.report-toolbar-button:active {
+  background-color: #e5e7eb;
+}
+
+.report-toolbar-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Code snippet styling */
+.details-content pre {
+  overflow-x: auto;
+  border-radius: 0 0 6px 6px;
+  padding: 1rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.details-content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+/* Prose styling for markdown content */
+.details-content .prose {
+  max-width: none;
+  color: #374151;
+  line-height: 1.6;
+}
+
+.details-content .prose h1,
+.details-content .prose h2,
+.details-content .prose h3,
+.details-content .prose h4 {
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  line-height: 1.25;
+  color: #111827;
+}
+
+.details-content .prose h1 {
+  font-size: 1.5rem;
+}
+
+.details-content .prose h2 {
+  font-size: 1.25rem;
+}
+
+.details-content .prose h3 {
+  font-size: 1.125rem;
+}
+
+.details-content .prose p {
+  margin-top: 1em;
+  margin-bottom: 1em;
+}
+
+.details-content .prose a {
+  color: #2563eb;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.details-content .prose ul,
+.details-content .prose ol {
+  padding-left: 1.5rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.details-content .prose li {
+  margin-top: 0.375rem;
+  margin-bottom: 0.375rem;
+}
+
+.details-content .prose ul {
+  list-style-type: disc;
+}
+
+.details-content .prose ol {
+  list-style-type: decimal;
+}
+
+.details-content .prose blockquote {
+  border-left: 4px solid #e5e7eb;
+  padding-left: 1rem;
+  font-style: italic;
+  color: #6b7280;
+}
+
+.details-content .prose pre {
+  overflow-x: auto;
+  background-color: #1f2937;
+  color: #f3f4f6;
+  padding: 1rem;
+  border-radius: 6px;
+  margin-top: 1em;
+  margin-bottom: 1em;
+}
+
+.details-content .prose img {
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+  border-radius: 6px;
+  max-width: 100%;
+  height: auto;
+}
+
+/* Link styling for details panel */
+.details-content .web-links-container {
+  margin-bottom: 1.5rem;
+}
+
+.details-content .web-link-item {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #edf2f7;
+}
+
+.details-content .web-link-item:last-child {
+  border-bottom: none;
+}
+
+.details-content .web-link-title {
+  font-weight: 500;
+  color: #2563eb;
+  display: block;
+  margin-bottom: 0.25rem;
+  text-decoration: none;
+}
+
+.details-content .web-link-title:hover {
+  text-decoration: underline;
+}
+
+.details-content .web-link-description {
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: #4b5563;
+  margin-bottom: 0.25rem;
+}
+
+.details-content .web-link-domain {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.details-content .web-link-icon {
+  width: 20px;
+  height: 20px;
+  margin-right: 0.75rem;
+  flex-shrink: 0;
+}
