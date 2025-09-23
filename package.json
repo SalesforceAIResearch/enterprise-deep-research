@@ -1,0 +1,26 @@
+{
+  "name": "workspace",
+  "version": "1.0.0",
+  "description": "This project provides a flexible system for integrating various LLM providers (OpenAI, Anthropic, Groq) with the E2B code interpreter.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/frankyanwang/deep_research.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/frankyanwang/deep_research/issues"
+  },
+  "homepage": "https://github.com/frankyanwang/deep_research#readme",
+  "dependencies": {
+    "@e2b/cli": "^1.3.2",
+    "rehype-raw": "^7.0.0",
+    "serve": "^14.2.4"
+  }
+}

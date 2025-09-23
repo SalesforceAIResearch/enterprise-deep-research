@@ -1,0 +1,247 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+}
+
+body {
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-weight: 400;
+  letter-spacing: normal;
+  color: theme('colors.text');
+  background-color: theme('colors.bg');
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.subtle-shadow {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.checklist-item::before {
+  content: '';
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  border: 1px solid #000;
+  border-radius: 2px;
+  vertical-align: middle;
+}
+
+.checklist-item.completed::before {
+  background-color: #000;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='white'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M5 13l4 4L19 7' /%3E%3C/svg%3E");
+  background-size: 12px;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.typing-indicator::after {
+  content: '...';
+  animation: typing 1.5s infinite;
+}
+
+@keyframes typing {
+  0%, 100% { content: ''; }
+  25% { content: '.'; }
+  50% { content: '..'; }
+  75% { content: '...'; }
+}
+
+.research-item {
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.research-item:hover {
+  background-color: rgba(0, 0, 0, 0.03);
+}
+
+.research-item.active {
+  background-color: rgba(0, 0, 0, 0.05);
+  border-left-color: #000;
+  border-left-width: 3px;
+}
+
+/* Table of contents styling */
+.prose ul li ul {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.prose ul li {
+  position: relative;
+}
+
+/* For nested list indentation */
+.prose ul li ul {
+  margin-left: 1.5rem;
+}
+
+/* Special styling for research report */
+h1 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 0.5rem;
+}
+
+h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+/* Special styling for cover page */
+h1 + p {
+  font-size: 1.1rem;
+  line-height: 1.7;
+}
+
+/* Table of contents specific styling */
+h2:has(+ ul) + ul {
+  border-left: 2px solid #e5e7eb;
+  padding-left: 1rem;
+}
+
+/* Adding page numbers alignment for TOC items */
+.prose ul li p:last-child {
+  margin-left: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+} 
+
+/* Code blocks styling */
+pre {
+  margin: 1rem 0;
+  overflow-x: auto;
+  border-radius: 0.375rem;
+  font-size: 0.8rem !important; /* Applied to <pre> directly */
+}
+
+/* General code tag styling (applies to inline and block if not overridden) */
+code {
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace !important;
+  font-size: 0.85em !important; /* Relative to parent, usually <pre> or <p> */
+}
+
+/* Inline code specific styling (rendered by FinalReport.js with .final-report-inline-code) */
+.final-report-inline-code {
+  background-color: rgba(27,31,35,.07) !important; /* GitHub-like subtle gray */
+  padding: .2em .4em !important;
+  margin: 0 !important;
+  font-size: 85% !important; /* Relative to its parent (e.g., <p>) */
+  border-radius: 3px !important; /* Softer radius */
+  font-family: SFMono-Regular, Consolas, 'Liberation Mono', Menlo, Courier, monospace !important;
+  color: #1f2328 !important; /* Darker text for better readability */
+  white-space: nowrap !important; /* Keep inline code on one line */
+  display: inline !important; /* Ensure it behaves as inline */
+  vertical-align: baseline !important;
+}
+
+.dark .final-report-inline-code {
+  background-color: rgba(110,118,129,0.4) !important;
+  color: #c9d1d9 !important;
+}
+
+/* Minimal code block styling (rendered by FinalReport.js with .final-report-minimal-block) */
+.final-report-minimal-block {
+  display: block !important;
+  padding: 0.2em 0.5em !important;
+  margin: 0.5em 0 !important;
+  background-color: #f0f2f5 !important;
+  border: 1px solid #d9dcdf !important;
+  border-radius: 4px !important;
+  font-family: SFMono-Regular, Consolas, 'Liberation Mono', Menlo, Courier, monospace !important;
+  font-size: 0.8em !important; /* Explicit size for the block */
+  white-space: pre !important;
+  overflow-x: auto !important;
+  color: #303133 !important;
+  line-height: 1.4 !important;
+  min-height: auto !important;
+}
+.final-report-minimal-block code { /* Styling for <code> inside minimal block */
+  font-family: inherit !important; /* Inherit from .final-report-minimal-block */
+  background-color: transparent !important;
+  padding: 0 !important;
+  font-size: inherit !important; /* Inherit size from pre */
+  color: inherit !important;
+}
+.dark .final-report-minimal-block {
+  background-color: #2c2c2c !important;
+  border-color: #444 !important;
+  color: #c9d1d9 !important;
+}
+
+/* Empty code block styling (rendered by FinalReport.js with .final-report-empty-block) */
+.final-report-empty-block {
+  display: block !important;
+  padding: 0.5em 0.8em !important;
+  margin: 0.5em 0 !important;
+  background-color: #f9f9f9 !important;
+  border: 1px dashed #ccc !important;
+  border-radius: 4px !important;
+  font-family: SFMono-Regular, Consolas, 'Liberation Mono', Menlo, Courier, monospace !important;
+  font-size: 0.75em !important;
+  color: #777 !important;
+  min-height: 2em !important;
+  line-height: 1 !important;
+  text-align: center !important;
+}
+.final-report-empty-block code { /* Styling for <code> inside empty block */
+  font-family: inherit !important;
+  background-color: transparent !important;
+  padding: 0 !important;
+  font-size: inherit !important;
+  color: inherit !important;
+}
+.dark .final-report-empty-block {
+  background-color: #252525 !important;
+  border-color: #555 !important;
+  color: #888 !important;
+}
+
+/* Ensure SyntaxHighlighter's <pre> doesn't add extra margins or borders */
+.code-block-content pre {
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+}
+
+/* Ensure keywords in code blocks are properly styled by SyntaxHighlighter */
+/* These are examples, actual classes depend on SyntaxHighlighter's theme */
+.token.keyword,
+.token.function,
+.token.builtin,
+.token.class-name {
+  /* color: #d73a49; Example color, theme will override */
+}
+
+/* Ensure all text within SyntaxHighlighter uses monospace */
+.prism-code .token { /* General token class for Prism */
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace !important;
+}

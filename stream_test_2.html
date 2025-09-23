@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FastAPI Streaming Debug Client</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            margin: 0;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 { color: #333; margin-bottom: 20px; }
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover { background-color: #45a049; }
+        button:disabled { background-color: #cccccc; cursor: not-allowed; }
+        input[type="text"] {
+            padding: 10px;
+            width: 300px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        .stream-indicator {
+            font-weight: bold;
+            margin-left: 15px;
+        }
+        .results {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .stats-panel, .event-log, .event-display {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+        }
+        .stats-panel {
+            background-color: #f9f9f9;
+        }
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+        }
+        .event-log {
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            background-color: #f5f5f5;
+            white-space: pre-wrap;
+        }
+        .event-display {
+            overflow-y: auto;
+            max-height: 400px;
+        }
+        .event-item {
+            padding: 10px;
+            margin-bottom: 5px;
+            border-radius: 4px;
+            background-color: #f0f8ff;
+            border-left: 4px solid #4285f4;
+        }
+        .event-timestamp {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        .event-type {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .event-data {
+            margin-left: 15px;
+            font-family: monospace;
+        }
+        .loading { color: orange; }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>FastAPI Streaming Debug Client</h1>
+    
+    <div class="controls">
+        <input type="text" id="query" value="What is FastAPI?" placeholder="Enter research query">
+        <button id="startBtn">Start Research</button>
+        <button id="clearBtn">Clear Results</button>
+        <label><input type="checkbox" id="debugMode" checked> Debug Mode</label>
+        <div class="stream-indicator" id="streamStatus">Ready</div>
+    </div>
+    
+    <div class="results">
+        <div class="stats-panel">
+            <h3>Stream Statistics</h3>
+            <div class="stat-row">
+                <span>Connection Status:</span>
+                <span id="connectionStatus">Not connected</span>
+            </div>
+            <div class="stat-row">
+                <span>Events Received:</span>
+                <span id="eventCount">0</span>
+            </div>
+            <div class="stat-row">
+                <span>First Event Received:</span>
+                <span id="firstEventTime">-</span>
+            </div>
+            <div class="stat-row">
+                <span>Latest Event Received:</span>
+                <span id="latestEventTime">-</span>
+            </div>
+            <div class="stat-row">
+                <span>Elapsed Time:</span>
+                <span id="elapsedTime">0s</span>
+            </div>
+        </div>
+        
+        <div class="event-log" id="eventLog">
+            <!-- Debug log entries will be displayed here -->
+        </div>
+        
+        <div class="event-display" id="eventDisplay">
+            <!-- Events will be displayed here -->
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const startBtn = document.getElementById('startBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const queryInput = document.getElementById('query');
+        const debugMode = document.getElementById('debugMode');
+        const streamStatus = document.getElementById('streamStatus');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const eventCount = document.getElementById('eventCount');
+        const firstEventTime = document.getElementById('firstEventTime');
+        const latestEventTime = document.getElementById('latestEventTime');
+        const elapsedTime = document.getElementById('elapsedTime');
+        const eventLog = document.getElementById('eventLog');
+        const eventDisplay = document.getElementById('eventDisplay');
+        
+        // Stats
+        let stats = {
+            startTime: null,
+            eventCount: 0,
+            firstEventTime: null,
+            latestEventTime: null,
+            intervalId: null
+        };
+        
+        // Logging function
+        function logMessage(message, type = 'info') {
+            if (debugMode.checked || type === 'error') {
+                const timestamp = new Date().toISOString();
+                const logEntry = `[${timestamp}] [${type.toUpperCase()}] ${message}`;
+                eventLog.innerHTML += logEntry + '\n';
+                eventLog.scrollTop = eventLog.scrollHeight;
+            }
+        }
+        
+        // Update statistics
+        function updateStats() {
+            if (stats.startTime) {
+                const now = new Date();
+                const elapsed = Math.floor((now - stats.startTime) / 1000);
+                elapsedTime.textContent = `${elapsed}s`;
+            }
+        }
+        
+        // Start the streaming request
+        startBtn.addEventListener('click', async () => {
+            try {
+                // Reset stats
+                clearResults();
+                
+                // Disable button during request
+                startBtn.disabled = true;
+                streamStatus.textContent = 'Connecting...';
+                streamStatus.className = 'stream-indicator loading';
+                
+                stats.startTime = new Date();
+                stats.intervalId = setInterval(updateStats, 1000);
+                
+                const query = queryInput.value.trim() || 'What is FastAPI?';
+                
+                logMessage(`Starting research with query: "${query}"`);
+                logMessage('Preparing fetch request with streaming enabled');
+                
+                // Make the request
+                const response = await fetch('http://localhost:8003/deep-research', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'text/event-stream'
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        extra_effort: false,
+                        streaming: true
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status} ${response.statusText}`);
+                }
+                
+                logMessage(`Connection established: ${response.status} ${response.statusText}`);
+                connectionStatus.textContent = 'Connected';
+                streamStatus.textContent = 'Streaming...';
+                streamStatus.className = 'stream-indicator success';
+                
+                // Create a raw stream reader
+                const reader = response.body.getReader();
+                let decoder = new TextDecoder();
+                let buffer = '';
+                
+                logMessage('Starting to read from stream');
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    
+                    if (done) {
+                        logMessage('Stream closed by server');
+                        break;
+                    }
+                    
+                    // Decode the chunk and add to buffer
+                    const chunk = decoder.decode(value, { stream: true });
+                    buffer += chunk;
+                    
+                    logMessage(`Received chunk: ${chunk.length} bytes`);
+                    
+                    // Process any complete SSE events (data: {...}\n\n)
+                    let eventEndIndex;
+                    while ((eventEndIndex = buffer.indexOf('\n\n')) !== -1) {
+                        const eventData = buffer.substring(0, eventEndIndex);
+                        buffer = buffer.substring(eventEndIndex + 2);
+                        
+                        // Check if this is a valid SSE data line
+                        if (eventData.startsWith('data: ')) {
+                            const jsonStr = eventData.substring(6);
+                            try {
+                                const event = JSON.parse(jsonStr);
+                                processEvent(event);
+                            } catch (e) {
+                                logMessage(`Failed to parse event JSON: ${jsonStr}`, 'error');
+                                logMessage(`Error: ${e.message}`, 'error');
+                            }
+                        } else {
+                            logMessage(`Received non-data event: ${eventData}`, 'error');
+                        }
+                    }
+                }
+                
+                // End of stream
+                connectionStatus.textContent = 'Closed';
+                streamStatus.textContent = 'Completed';
+                
+            } catch (error) {
+                logMessage(`Error: ${error.message}`, 'error');
+                streamStatus.textContent = 'Error';
+                streamStatus.className = 'stream-indicator error';
+                connectionStatus.textContent = 'Error';
+            } finally {
+                startBtn.disabled = false;
+            }
+        });
+        
+        // Process a received event
+        function processEvent(event) {
+            stats.eventCount++;
+            const now = new Date();
+            
+            if (!stats.firstEventTime) {
+                stats.firstEventTime = now;
+                firstEventTime.textContent = now.toISOString();
+            }
+            
+            stats.latestEventTime = now;
+            latestEventTime.textContent = now.toISOString();
+            eventCount.textContent = stats.eventCount;
+            
+            logMessage(`Received event: ${event.event_type}`);
+            
+            // Create event display element
+            const eventItem = document.createElement('div');
+            eventItem.className = 'event-item';
+            
+            const timestamp = document.createElement('div');
+            timestamp.className = 'event-timestamp';
+            timestamp.textContent = event.timestamp || new Date().toISOString();
+            
+            const eventType = document.createElement('div');
+            eventType.className = 'event-type';
+            eventType.textContent = `Event: ${event.event_type}`;
+            
+            const eventData = document.createElement('div');
+            eventData.className = 'event-data';
+            
+            if (event.data) {
+                const prettyData = JSON.stringify(event.data, null, 2)
+                    .replace(/\\n/g, '\n')
+                    .replace(/\\"/g, '"');
+                eventData.textContent = prettyData;
+            } else {
+                eventData.textContent = '(No data)';
+            }
+            
+            eventItem.appendChild(timestamp);
+            eventItem.appendChild(eventType);
+            eventItem.appendChild(eventData);
+            
+            eventDisplay.appendChild(eventItem);
+            // Scroll to bottom
+            eventDisplay.scrollTop = eventDisplay.scrollHeight;
+        }
+        
+        // Clear results
+        clearBtn.addEventListener('click', clearResults);
+        
+        function clearResults() {
+            // Clear display
+            eventLog.innerHTML = '';
+            eventDisplay.innerHTML = '';
+            
+            // Reset stats
+            stats = {
+                startTime: null,
+                eventCount: 0,
+                firstEventTime: null,
+                latestEventTime: null
+            };
+            
+            if (stats.intervalId) {
+                clearInterval(stats.intervalId);
+                stats.intervalId = null;
+            }
+            
+            // Reset UI elements
+            connectionStatus.textContent = 'Not connected';
+            eventCount.textContent = '0';
+            firstEventTime.textContent = '-';
+            latestEventTime.textContent = '-';
+            elapsedTime.textContent = '0s';
+            streamStatus.textContent = 'Ready';
+            streamStatus.className = 'stream-indicator';
+        }
+        
+        // Log initial message
+        logMessage('Debug client initialized and ready');
+    </script>
+</body>
+</html> 
