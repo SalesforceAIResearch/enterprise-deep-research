@@ -78,7 +78,7 @@ def main():
     # Sort all reports by id
     all_reports.sort(key=lambda x: x["id"])
 
-    with open(f"{args.model_name}.jsonl", "w", encoding="utf-8") as f:
+    with open(f"deep_research_bench/data/test_data/raw_data/{args.model_name}.jsonl", "w", encoding="utf-8") as f:
         for report in all_reports:
             f.write(json.dumps(report, ensure_ascii=False) + "\n")
 
