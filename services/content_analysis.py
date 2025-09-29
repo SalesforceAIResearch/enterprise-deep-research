@@ -170,7 +170,7 @@ class ContentAnalysisService:
             llm_provider = os.getenv(
                 "LLM_PROVIDER", "google"
             )  # Default to Google for vision
-            llm_model = os.getenv("LLM_MODEL", "gemini-2.5-pro-preview-03-25")
+            llm_model = os.getenv("LLM_MODEL", "gemini-2.5-pro")
 
             logger.info(f"Using LLM: {llm_provider}/{llm_model} for analysis")
             logger.info(

@@ -46,7 +46,7 @@ const MODEL_OPTIONS = [
   {
     key: "google-gemini",
     label: "gemini-2.5-pro",
-    model: "gemini-2.5-pro-preview-03-25",
+    model: "gemini-2.5-pro",
     icon: (
       <svg width="20" height="20" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path

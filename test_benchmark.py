@@ -25,7 +25,7 @@ async def test_benchmark_question():
         "configurable": {
             "thread_id": "benchmark_test",
             "llm_provider": "google",
-            "llm_model": "gemini-2.5-pro-preview-03-25",
+            "llm_model": "gemini-2.5-pro",
             "max_web_research_loops": 10
         },
         "recursion_limit": 100, # Set recursion limit to 100

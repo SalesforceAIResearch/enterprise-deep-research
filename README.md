@@ -86,6 +86,8 @@ For subsequent runs after the initial setup:
 - `mcp_servers/` - MCP (Model Context Protocol) server implementations
 - `src/` - Additional source code and tools
 
+3. Navigate to http://localhost:8000 to interact with the agent
+
 ### Troubleshooting
 
 - Ensure all environment variables are properly configured in both `.env` files
@@ -95,4 +97,5 @@ For subsequent runs after the initial setup:
 
 ## 📊 Benchmarking with Enterprise Deep Research Agent
 
-For detailed benchmarking guidelines, refer to `benchmarks/README.md`
+A backend only version can be used to evaluate the agent on Deep Research benchmarks.
+For detailed guidelines, please refer to [benchmarks/README.md](benchmarks/README.md)
