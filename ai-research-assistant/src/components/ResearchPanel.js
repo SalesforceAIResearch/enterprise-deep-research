@@ -1109,7 +1109,7 @@ function ResearchPanel({
       "o3-mini": "o3-mini", 
       "claude-sonnet-4": "Claude Sonnet 4",
       "claude-3-7-sonnet": "Claude 3.7 Sonnet",
-      "gemini-2.5-pro-preview-03-25": "Gemini 2.5 Pro"
+      "gemini-2.5-pro": "Gemini 2.5 Pro"
     }
     
     return modelDisplayNames[modelName] || modelName

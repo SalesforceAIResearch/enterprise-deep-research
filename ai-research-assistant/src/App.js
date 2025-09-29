@@ -10,7 +10,7 @@ function App() {
   const [minimumEffort, setMinimumEffort] = useState(false);
   const [benchmarkMode, setBenchmarkMode] = useState(false);
   const [modelProvider, setModelProvider] = useState('google'); // Default provider
-  const [modelName, setModelName] = useState('gemini-2.5-pro-preview-03-25'); // Default model
+  const [modelName, setModelName] = useState('gemini-2.5-pro'); // Default model
   const [uploadedFileContent, setUploadedFileContent] = useState(null); // Added state for uploaded file content
 
   const [isDetailsPanelOpen, setIsDetailsPanelOpen] = useState(false);

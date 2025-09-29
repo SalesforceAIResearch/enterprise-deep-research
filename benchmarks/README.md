@@ -5,7 +5,29 @@ This guide demonstrates how to use the Deep Research Agent for evaluation using 
 - **Sequential Mode** (`run_research.py`): Process queries one at a time
 - **Concurrent Mode** (`run_research_concurrent.py`): Process multiple queries in parallel for faster evaluation
 
-## Quick Usage Example
+## Quick Usage
+
+### Supported Models
+
+| Provider | Required Environment Variable | Models |
+|----------|------------------------------|------------------|
+| **OpenAI** | `OPENAI_API_KEY` | `o4-mini` (default), `o4-mini-high`, `o3-mini`, `o3-mini-reasoning`, `gpt-4o` |
+| **Anthropic** | `ANTHROPIC_API_KEY` | `claude-sonnet-4` (default), `claude-sonnet-4-thinking`, `claude-3-7-sonnet`, `claude-3-7-sonnet-thinking`, `claude-3-5-sonnet` |
+| **Google (Vertex AI)** | `GOOGLE_CLOUD_PROJECT` + `GOOGLE_CLOUD_LOCATION` | `gemini-2.5-pro` (default), `gemini-1.5-pro-latest`, `gemini-1.5-flash-latest`, `gemini-pro` |
+| **Groq** | `GROQ_API_KEY` | `deepseek-r1-distill-llama-70b` (default), `llama-3.3-70b-versatile`, `llama3-70b-8192` |
+| **SambaNova** | `SAMBNOVA_API_KEY` | `DeepSeek-V3-0324` |
+
+### Setup Example
+```bash
+# Set your API keys in environment
+export OPENAI_API_KEY="your_openai_key_here"
+export ANTHROPIC_API_KEY="your_anthropic_key_here"
+export GOOGLE_CLOUD_PROJECT="your_gcp_project_id"
+export GROQ_API_KEY="your_groq_key_here"
+
+# Then run with your preferred provider
+python run_research.py "Your query" --provider openai --model o4-mini
+```
 
 Process individual queries using `run_research.py` from the benchmarks directory:
 
@@ -33,9 +55,11 @@ python run_research.py "Analyze this research paper" \
 - `--qa-mode`: Simple question-answering mode
 - `--file`: Path to file for analysis (PDF, TXT, etc.)
 
+
+
 ## DeepResearchBench Evaluation
 
-Clone the DeepResearchBench repo:
+From inside the `benchmark` folder, clone the DeepResearchBench repo:
 ```bash
 git clone https://github.com/Ayanami0730/deep_research_bench.git
 ```
@@ -60,11 +84,14 @@ python process_drb.py \
 ```
 
 The processed report will be saved to `deep_research_bench/data/test_data/raw_data/edr_gemini.jsonl`
+Add your model name (eg. edr_gemini) to `TARGET_MODELS` in `run_benchmark.sh` inside `deep_research_bench`
 
 3. **Run DeepResearchBench evaluation**:
 ```bash
 cd deep_research_bench
-# Add your model name (eg. edr_gemini) to TARGET_MODELS in run_benchmark.sh
+# Set up Gemini and Jina API keys for LLM evaluation and web scraping 
+export GEMINI_API_KEY="your_gemini_api_key_here"
+export JINA_API_KEY="your_jina_api_key_here"
 bash run_benchmark.sh
 ```
 

@@ -105,12 +105,12 @@ MODEL_CONFIGS = {
     # Google Vertex AI models
     "google": {
         "available_models": [
-            "gemini-2.5-pro-preview-03-25",
+            "gemini-2.5-pro",
             "gemini-1.5-pro-latest",  # Recommended Pro model
             "gemini-1.5-flash-latest",  # Recommended Flash model
             "gemini-pro",  # Older Pro model
         ],
-        "default_model": "gemini-2.5-pro-preview-03-25",
+        "default_model": "gemini-2.5-pro",
         "requires_api_key": GOOGLE_CLOUD_PROJECT,
     },
 }
