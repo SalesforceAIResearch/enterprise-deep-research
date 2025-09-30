@@ -134,6 +134,7 @@ Guidelines:
 4. If the search results don't contain the answer, explicitly state this
 5. Provide a confidence level (HIGH, MEDIUM, LOW) based on the reliability and completeness of the source information
 6. ALWAYS cite sources using numbered citations in square brackets [1][2], etc.
+7. CRITICAL: Keep your response under 300 words total. Be concise and focus on the most essential information.
 
 CRITICAL: When dealing with temporal claims (dates, current events, "current" positions):
 - Use the TIME_CONTEXT above to verify if dates make sense
@@ -155,7 +156,7 @@ For proper source attribution in your answer:
 10. Every factual statement in your answer MUST be supported by a citation
 </CITATION_REQUIREMENTS>
 
-ANSWER FORMAT:
+ANSWER FORMAT (Keep each section brief to stay under 300 words total):
 1. Direct Answer: [The specific answer to the question]
 2. Confidence: [HIGH/MEDIUM/LOW]
 3. Supporting Evidence: [Brief summary of the key evidence supporting this answer]
@@ -274,6 +275,7 @@ Guidelines:
 4. Clearly state if some aspects of the question remain unanswered
 5. Provide a final confidence assessment for your answer
 6. ALWAYS cite  the specific sources that support your final answer using numbered citations in square brackets [1][2], etc.
+7. CRITICAL: Keep your final answer under 300 words total. Be concise and focus on the most essential information.
 
 CRITICAL: When synthesizing temporal information (dates, current events, "current" positions):
 - Use the TIME_CONTEXT above to verify if dates make sense
@@ -306,7 +308,7 @@ Provide the **Direct Answer:** [Clear, concise answer to the original question w
 etc.
 IMPORTANT: Use the exact titles, authors, years, and URLs from the "AVAILABLE SOURCES FOR CITATION" section above. For academic sources, use the format "First Author et al. (year) Title". For non-academic sources without author/year, use "Title".]
 
-Keep your answer focused specifically on what was asked. Do not include unnecessary background information or speculation.
+Keep your answer focused specifically on what was asked. Do not include unnecessary background information or speculation. Prioritize brevity and essential facts to stay within the 300-word limit.
 
 IMPORTANT: Every factual claim in your final answer must be followed by appropriate citation numbers [1][2] that correspond to the sources in your References section.
 """
