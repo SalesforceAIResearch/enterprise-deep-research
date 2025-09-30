@@ -130,7 +130,7 @@ class DRBDatasetManager(BenchmarkDatasetManager):
 
     def get_processing_config(self) -> Dict:
         return {
-            "max_loops_default": 10,
+            "max_loops_default": 5,
             "benchmark_mode": False,
             "qa_mode": False,
             "visualization_disabled": True,
@@ -166,6 +166,17 @@ class RQADatasetManager(BenchmarkDatasetManager):
                 # Add index if not present
                 if "index" not in item:
                     item["index"] = i
+
+                # For RQA, append word count instruction to the query
+                if "query" in item:
+                    original_query = item["query"]
+                    if not original_query.endswith(
+                        "\nPlease answer in around 240-260 words."
+                    ):
+                        item["query"] = (
+                            original_query + "\nPlease answer in around 240-260 words."
+                        )
+
                 queries.append(item)
 
             # Filter by task IDs if specified (using indices)
@@ -258,8 +269,8 @@ class DeepConsultDatasetManager(BenchmarkDatasetManager):
 
     def get_processing_config(self) -> Dict:
         return {
-            "max_loops_default": 20,  # Max 5 loops as requested
-            "benchmark_mode": False,  # Regular mode as requested
+            "max_loops_default": 10,
+            "benchmark_mode": False,
             "qa_mode": False,
             "visualization_disabled": True,
         }
@@ -295,8 +306,8 @@ def get_default_file_paths(benchmark_type: str) -> Dict[str, str]:
                 / "benchmarks"
                 / "deep_research_bench"
                 / "data"
-                / "test_data"
-                / "queries.jsonl"
+                / "prompt_data"
+                / "query.jsonl"
             ),
             "output_dir": str(
                 base_dir
