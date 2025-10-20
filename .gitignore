@@ -58,6 +58,8 @@ venv.bak/
 *.csv
 *.pdf
 *.log 
+!assets/edr_ppl.png
+!assets/leaderboard.png
 
 # LangGraph Studio
 .langgraph/
