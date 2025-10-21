@@ -17,6 +17,11 @@ LLM_MODEL=gemini-2.5-pro
 GOOGLE_CLOUD_PROJECT=your-project-id
 TAVILY_API_KEY=your-tavily-key
 MAX_WEB_RESEARCH_LOOPS=5
+
+# Optional: LangSmith for tracing (not required)
+# LANGCHAIN_API_KEY=your-key
+# LANGCHAIN_TRACING_V2=true
+# LANGCHAIN_PROJECT=your-project
 ```
 
 ---
@@ -30,8 +35,8 @@ Process queries one at a time using `run_research.py`:
 python run_research.py "Your research query" \
   --provider google \
   --model gemini-2.5-pro \
-  --max-loops 5 \
-  --benchmark-mode
+  --max-loops 2 \
+  --output result.json
 ```
 
 ### ⚡ Concurrent Processing
@@ -39,20 +44,30 @@ Process multiple queries in parallel using `run_research_concurrent.py`:
 
 ```bash
 python run_research_concurrent.py \
-  --benchmark-type rqa \
-  --max-workers 4 \
+  --benchmark drb \
+  --max_concurrent 4 \
   --provider google \
   --model gemini-2.5-pro \
-  --max-loops 2
+  --max_loops 5
+```
+
+**Optional: Enable trajectory collection for detailed execution traces**
+```bash
+python run_research_concurrent.py \
+  --benchmark drb \
+  --max_concurrent 4 \
+  --collect-traj  # Saves detailed trajectory data for analysis
 ```
 
 ---
 
 ## 🎯 Supported Benchmarks
 
+> 💡 **Default Paths**: The scripts automatically use default input/output paths for each benchmark. You can override with `--input` and `--output_dir` flags.
+
 ### 1. DeepResearchBench (DRB)
 
-Comprehensive research evaluation with 100 PhD curated diverse queries.
+Comprehensive research evaluation with 100 PhD-curated diverse queries.
 
 **Setup:**
 ```bash
@@ -65,12 +80,14 @@ To run DeepResearchBench evaluation:
 **Step 1: Generate responses for all 100 queries**
 ```bash
 python run_research_concurrent.py \
-  --benchmark-type drb \
-  --max-workers 4 \
+  --benchmark drb \
+  --max_concurrent 4 \
   --provider google \
   --model gemini-2.5-pro \
-  --max-loops 5
+  --max_loops 5
 ```
+
+> 💡 **Tip**: Add `--collect-traj` to save detailed execution traces for debugging or analysis.
 
 **Step 2: Convert to benchmark format**
 ```bash
@@ -96,7 +113,11 @@ bash run_benchmark.sh
 
 ---
 
-## 2. DeepConsult
+### 2. DeepConsult
+
+Multi-perspective research evaluation with diverse query types.
+
+**Setup:**
 
 Clone the DeepConsult repo and follow the [installation steps](https://github.com/Su-Sea/ydc-deep-research-evals?tab=readme-ov-file#installation):
 ```bash
@@ -108,9 +129,9 @@ To run DeepConsult evaluation:
 **Step 1: Process DeepConsult CSV queries**
 ```bash
 python run_research_concurrent.py \
-  --benchmark-type deepconsult \
-  --max-workers 4 \
-  --max-loops 10 \
+  --benchmark deepconsult \
+  --max_concurrent 4 \
+  --max_loops 10 \
   --provider google \
   --model gemini-2.5-pro
 ```
@@ -181,15 +202,6 @@ The concurrent script provides **detailed progress tracking**:
 
 # Reduce concurrent workers
 --max-workers 2
-```
-
-**Memory Issues:**
-```bash
-# Reduce batch size
---limit 50
-
-# Use lighter models
---model gemini-1.5-flash-latest
 ```
 
 **API Errors:**
