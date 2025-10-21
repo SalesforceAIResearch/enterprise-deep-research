@@ -60,7 +60,8 @@ venv.bak/
 *.log 
 !assets/edr_ppl.png
 !assets/leaderboard.png
-
+!assets/benchmarks.png
+!assets/edr_github.png
 # LangGraph Studio
 .langgraph/
 .langgraph-studio/
