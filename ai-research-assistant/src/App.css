@@ -3,76 +3,159 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow-x: hidden; /* Prevent horizontal scrollbars during animation */
+  overflow-x: hidden;
+}
+
+.app-root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background: linear-gradient(to bottom right, #f8fafc, #eff6ff, #f8fafc);
+}
+
+/* When details panel is active, allow more height for footer */
+.app-root.details-panel-active {
+  height: calc(100vh + 80px);
+  overflow-y: auto;
 }
 
 .app-container {
-  display: flex;
-  height: 100vh;
-  width: 100vw;
-  overflow: hidden; /* Important to contain the panels */
-  justify-content: center; /* Center ResearchPanel when DetailsPanel is closed */
-  background-color: #edf2f7; /* Slightly darker background to contrast with the lighter left panel */
+  display: grid;
+  grid-template-columns: 1fr;
+  /* Single column by default */
+  min-height: calc(100vh - 52px);
+  /* Subtract navbar height (thinner now) */
+  width: 100%;
+}
+
+/* When research is active (single panel) */
+.app-container.research-active {
+  height: calc(100vh - 60px);
+  /* 52px navbar + 8px top padding */
+  overflow: hidden;
+  padding: 8px 8px 0 8px;
+  box-sizing: border-box;
 }
 
 .app-container.details-panel-active {
-  justify-content: flex-start; /* Align panels to the left when DetailsPanel is open */
-  padding-left: 84px; /* Add space on the left when details panel is open */
+  grid-template-columns: 55fr 45fr;
+  /* 55% main, 45% details when active */
+  height: calc(100vh - 60px);
+  /* 52px navbar + 8px top padding */
+  overflow: hidden;
+  padding: 8px 8px 0 8px;
+  gap: 8px;
+  box-sizing: border-box;
+}
+
+/* When both research is active AND details panel is open, allow overflow */
+.app-container.research-active.details-panel-active {
+  overflow: visible;
 }
 
 .main-panel-wrapper {
-  /* flex-grow: 1; */ /* Remove flex-grow for default fixed width */
-  height: calc(100vh - 24px); /* Match the height of the DetailsPanel */
-  margin: 12px 0 12px 12px; /* Add margins to match DetailsPanel */
-  overflow: hidden; /* Hide overflow at container level */
-  transition: width 0.3s ease-out, margin 0.3s ease-out; /* Smoother easing */
-  width: 800px; /* Fixed width of 800px always */
-  max-width: 800px; /* Cap the width at 800px */
-  flex-shrink: 0; /* Prevent shrinking when centered */
-  border-radius: 10px; /* Slightly less rounded corners than right panel */
-  border: 1px solid #e8eaed; /* Lighter border color */
-  background-color: #f8fafc; /* Lighter background color that blends with the app background */
-  box-shadow: 0 2px 8px rgba(0,0,0,0.04); /* Lighter shadow */
-  display: flex; /* Enable flexbox */
-  flex-direction: column; /* Stack content vertically */
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
+/* When research is active, constrain height */
+.app-container.research-active .main-panel-wrapper {
+  height: 100%;
+  overflow: hidden;
+  /* Keep contained */
+  border-radius: 16px;
+  border: 2px solid #e2e8f0;
+  background-color: #ffffff;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+}
+
+/* When both research is active AND details panel is open */
+.app-container.research-active.details-panel-active .main-panel-wrapper {
+  height: 100%;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 2px solid #e2e8f0;
+  background-color: #ffffff;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+}
+
+/* When details panel is active (but research not active) */
 .app-container.details-panel-active .main-panel-wrapper {
-  width: 50%; /* Adjust width when details panel is open */
-  max-width: 800px; /* Cap the width even if 50% is larger */
-  margin: 12px 6px 12px 12px; /* Add margin on sides for spacing */
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+  /* Allow footer to be visible */
+  border-radius: 16px;
+  border: 2px solid #e2e8f0;
+  background-color: #ffffff;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Ensure ResearchPanel fills the main-panel-wrapper */
+.main-panel-wrapper>div {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* When both research is active AND details panel is open */
+.app-container.research-active.details-panel-active .main-panel-wrapper>div {
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* When details panel is active (but research not active), allow ResearchPanel to expand */
+.app-container.details-panel-active .main-panel-wrapper>div {
+  height: auto;
+  min-height: 100%;
+}
+
+/* ResearchPanel should handle its own internal scrolling */
+.app-container.research-active .main-panel-wrapper>div {
+  overflow: hidden;
+  /* Panel manages internal overflow */
 }
 
 /* Styling for the DetailsPanel component from components/DetailsPanel.js */
 /* It uses id="details-panel" */
 #details-panel {
-  position: absolute;
-  right: 0;
-  top: 0;
-  width: calc(50% - 24px); /* Adjusted width to account for margins */
-  height: calc(100vh - 24px); /* Adjust height to account for margins */
-  margin: 12px 12px 12px 0; /* Add margin on all sides except left */
-  background-color: white; /* Ensure background is opaque */
-  box-shadow: 0 6px 16px rgba(0,0,0,0.12); /* Stronger shadow for elevation effect */
-  transform: translateX(calc(100% + 24px)); /* Start off-screen to the right, accounting for margin */
-  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); /* More natural easing curve */
-  overflow-y: hidden; /* Don't allow scroll until fully visible */
-  border: 1px solid #e0e0e0; /* Border all around */
-  border-radius: 12px; /* Rounded corners */
-  z-index: 10; /* Ensure it's above other content */
-  display: flex; /* Use flex to ensure proper structure */
-  flex-direction: column; /* Stack header, content, footer */
+  width: 0;
+  height: 100%;
+  background-color: white;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+  border: 2px solid #e2e8f0;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+  opacity: 0;
 }
 
-#details-panel.visible { 
-  transform: translateX(0); /* Slide in */
-  overflow-y: hidden; /* Don't allow scrolling at container level - only for content */
+#details-panel.visible {
+  width: 100%;
+  /* Take full grid column width (45%) when open */
+  opacity: 1;
 }
 
 /* Ensure the existing 'hidden' class from DetailsPanel.js doesn't interfere if not removed */
 /* #details-panel.hidden { */
-  /* transform: translateX(100%) !important; */ /* Force it off-screen if hidden class is still applied */
-/* } */ /* REMOVED as per instructions */
+/* transform: translateX(100%) !important; */
+/* Force it off-screen if hidden class is still applied */
+/* } */
+/* REMOVED as per instructions */
 
 /* Research Report Button Styling */
 .task-item .view-report-button {
@@ -106,36 +189,17 @@ body {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
-/* Update responsive styles for the new rounded panel */
+/* Update responsive styles for the new grid layout */
 @media (max-width: 768px) {
-  .app-container.details-panel-active {
-    padding-left: 0; /* Remove left padding on mobile */
+  .app-container {
+    grid-template-columns: 1fr;
+    /* Stack vertically on mobile */
+    grid-template-rows: 1fr auto;
   }
 
-  .app-container.details-panel-active .main-panel-wrapper {
-    width: 100%; /* Stack panels on smaller screens or hide main panel */
-    max-width: none; /* Remove max-width constraint on mobile when active */
-    margin: 12px; /* Add margin on all sides for mobile */
-    margin-bottom: 0; /* No bottom margin needed */
-  }
-
-  #details-panel { 
-    width: calc(100% - 24px); /* Full width minus margins */
-    margin: 12px; /* Even margins on all sides for mobile */
-    height: calc(100vh - 24px - 12px); /* Adjust to account for 12px top margin of main panel */
-    top: 12px; /* Start 12px from the top to align with main panel */
-  }
-  
-  .app-container.details-panel-active {
-    /* Optionally, if stacking is desired on mobile when details panel is active:
-    flex-direction: column;
-    */
-  }
-
-  /* Ensure main panel is full width when details are closed on mobile */
-  .main-panel-wrapper { /* This applies when details panel is closed */
-     width: 100%; /* ResearchPanel takes full width on mobile if details are closed */
-     max-width: 100%; /* Allow full width on mobile */
+  #details-panel.visible {
+    width: 100%;
+    /* Full width on mobile */
   }
 }
 
@@ -313,4 +377,39 @@ body {
   height: 20px;
   margin-right: 0.75rem;
   flex-shrink: 0;
+}
+
+/* Database Report Styling */
+.database-report-container {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+  word-wrap: break-word;
+}
+
+.database-report-container table {
+  width: 100%;
+  max-width: 100%;
+  table-layout: auto;
+  word-wrap: break-word;
+}
+
+.database-report-container td,
+.database-report-container th {
+  max-width: 300px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.database-report-container h1,
+.database-report-container h2,
+.database-report-container h3,
+.database-report-container h4 {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.database-report-container p {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }

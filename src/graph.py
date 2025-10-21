@@ -16,9 +16,57 @@ from openai import OpenAI
 import uuid
 
 from typing_extensions import Literal
+from datetime import datetime
 
 # Set up logger
 logger = logging.getLogger(__name__)
+
+# Global dictionary to store database_info per session (workaround for LangGraph state serialization issue)
+_session_database_info = {}
+
+
+def set_database_info(database_info, session_id=None):
+    """Set the database_info for a specific session or globally"""
+    global _session_database_info
+    if session_id:
+        _session_database_info[session_id] = database_info
+        logger.info(
+            f"[set_database_info] Set database_info for session {session_id}: {database_info}"
+        )
+    else:
+        # Fallback to global key if no session_id provided
+        _session_database_info["__global__"] = database_info
+        logger.info(f"[set_database_info] Set global database_info: {database_info}")
+
+
+def get_database_info(session_id=None):
+    """Get the database_info for a specific session or globally"""
+    global _session_database_info
+    if session_id and session_id in _session_database_info:
+        db_info = _session_database_info[session_id]
+        logger.info(
+            f"[get_database_info] Retrieved database_info for session {session_id}: {db_info}"
+        )
+        return db_info
+    # Fallback to global key
+    db_info = _session_database_info.get("__global__")
+    logger.info(f"[get_database_info] Retrieved global database_info: {db_info}")
+    return db_info
+
+
+def clear_database_info(session_id=None):
+    """Clear database_info for a specific session"""
+    global _session_database_info
+    if session_id and session_id in _session_database_info:
+        del _session_database_info[session_id]
+        logger.info(
+            f"[clear_database_info] Cleared database_info for session {session_id}"
+        )
+    elif session_id is None:
+        # Clear all if no session specified
+        _session_database_info.clear()
+        logger.info(f"[clear_database_info] Cleared all session database_info")
+
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
@@ -80,6 +128,7 @@ from src.utils import (
     extract_domain,
 )
 from src.state import SummaryState, SummaryStateInput, SummaryStateOutput
+from src.simple_steering import TaskStatus
 from src.prompts import (
     query_writer_instructions,
     summarizer_instructions,
@@ -244,6 +293,24 @@ async def async_multi_agents_network(state: SummaryState, callbacks=None):
         Updated state with research results
     """
     logger = logging.getLogger(__name__)
+
+    logger.info("=" * 70)
+    logger.info("[async_multi_agents_network] Starting research")
+    logger.info(f"[async_multi_agents_network] state type: {type(state)}")
+    logger.info(
+        f"[async_multi_agents_network] state.steering_enabled: {getattr(state, 'steering_enabled', 'MISSING')}"
+    )
+    logger.info(
+        f"[async_multi_agents_network] state.steering_todo: {getattr(state, 'steering_todo', 'MISSING')}"
+    )
+    logger.info(
+        f"[async_multi_agents_network] hasattr steering_enabled: {hasattr(state, 'steering_enabled')}"
+    )
+    logger.info(
+        f"[async_multi_agents_network] hasattr steering_todo: {hasattr(state, 'steering_todo')}"
+    )
+    logger.info("=" * 70)
+
     logger.info(
         "[async_multi_agents_network] Starting research with agent architecture"
     )
@@ -253,6 +320,49 @@ async def async_multi_agents_network(state: SummaryState, callbacks=None):
     )
 
     try:
+        # Process steering messages and update todo.md at the start of each research loop
+        if hasattr(state, "steering_todo") and state.steering_todo:
+            from src.steering_integration import (
+                integrate_steering_with_research_loop,
+                get_steering_summary_for_agent,
+            )
+
+            logger.info(
+                "[STEERING] Processing steering messages and updating todo.md before research loop"
+            )
+
+            # Process queued steering messages and update todo.md
+            steering_result = await state.prepare_steering_for_next_loop()
+            if steering_result.get("steering_enabled"):
+                logger.info(
+                    f"[STEERING] Todo.md updated to version {steering_result.get('todo_version')}"
+                )
+                logger.info(
+                    f"[STEERING] Pending tasks: {steering_result.get('pending_tasks')}, "
+                    f"Completed tasks: {steering_result.get('completed_tasks')}"
+                )
+
+                # Emit steering update event for UI
+                if callbacks:
+                    await callbacks.emit_event(
+                        "steering_updated",
+                        {
+                            "todo_version": steering_result.get("todo_version"),
+                            "current_plan": steering_result.get("current_plan"),
+                            "pending_tasks": steering_result.get("pending_tasks"),
+                            "completed_tasks": steering_result.get("completed_tasks"),
+                            "loop_guidance": steering_result.get("loop_guidance"),
+                            "research_loop_count": state.research_loop_count,
+                        },
+                    )
+
+            # Get steering summary for agent context
+            steering_context = get_steering_summary_for_agent(state)
+            if steering_context:
+                logger.info(
+                    f"[STEERING] Active constraints: {steering_context.strip()}"
+                )
+
         # Import the master agent
         from src.agent_architecture import MasterResearchAgent
 
@@ -291,8 +401,17 @@ async def async_multi_agents_network(state: SummaryState, callbacks=None):
         # The 'results' from master_agent.execute_research should be a list of dictionaries,
         # where each dictionary is a search result.
         # MODIFICATION: master_agent_output is now a dictionary
+        # WORKAROUND: LangGraph is losing the database_info field during state serialization
+        # Use session-specific global variable instead of trying to get from state.config
+        stream_id = None
+        if config and "configurable" in config:
+            stream_id = config["configurable"].get("stream_id")
+        database_info = get_database_info(session_id=stream_id)
+        logger.info(
+            f"[async_multi_agents_network] Database info from global variable (session {stream_id}): {database_info}"
+        )
         master_agent_output = await master_agent.execute_research(
-            state, callbacks=callbacks
+            state, callbacks=callbacks, database_info=database_info
         )
         # Cancel heartbeat when done
         heartbeat.cancel()
@@ -377,10 +496,18 @@ async def async_multi_agents_network(state: SummaryState, callbacks=None):
                                                 not in existing_urls_in_citations
                                             ):
                                                 citation_key = str(citation_index)
-                                                source_citations[citation_key] = {
+                                                source_dict = {
                                                     "title": source["title"],
                                                     "url": source["url"],
                                                 }
+                                                # Preserve source_type if it exists
+                                                if "source_type" in source:
+                                                    source_dict["source_type"] = source[
+                                                        "source_type"
+                                                    ]
+                                                source_citations[citation_key] = (
+                                                    source_dict
+                                                )
                                                 existing_urls_in_citations.add(
                                                     source_url
                                                 )
@@ -557,6 +684,19 @@ async def async_multi_agents_network(state: SummaryState, callbacks=None):
                 f"[async_multi_agents_network] Type of first item in final web_research_results: {type(updated_results['web_research_results'][0])}"
             )
 
+        # CRITICAL: Ensure steering fields are preserved
+        if hasattr(state, "steering_enabled"):
+            updated_results["steering_enabled"] = state.steering_enabled
+        if hasattr(state, "steering_todo"):
+            updated_results["steering_todo"] = state.steering_todo
+
+        logger.info(
+            f"[async_multi_agents_network] Preserving steering_enabled: {updated_results.get('steering_enabled', 'MISSING')}"
+        )
+        logger.info(
+            f"[async_multi_agents_network] Preserving steering_todo: {updated_results.get('steering_todo', 'MISSING')}"
+        )
+
         return updated_results
 
     except asyncio.CancelledError as ce:
@@ -626,6 +766,136 @@ async def async_multi_agents_network(state: SummaryState, callbacks=None):
         return updated_state
 
 
+def _generate_database_report(
+    state: SummaryState, database_content: str, source_citations: dict
+):
+    """
+    Generate a comprehensive data report with LLM synthesis for database query results.
+    This function presents the data WITH intelligent analysis and insights.
+    """
+    logger.info(
+        "🔵 [DATABASE_REPORT] Starting database report generation with LLM synthesis"
+    )
+    logger.info(
+        f"🔵 [DATABASE_REPORT] Database content length: {len(database_content)} characters"
+    )
+    logger.info(f"🔵 [DATABASE_REPORT] Research topic: {state.research_topic}")
+
+    # Use LLM to generate insightful analysis from the data
+    from llm_clients import get_llm_client
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    provider = getattr(state, "llm_provider", "google")
+    model = getattr(state, "llm_model", "gemini-2.5-pro")
+    logger.info(f"🔵 [DATABASE_REPORT] Using LLM: {provider}/{model}")
+    llm = get_llm_client(provider, model)
+
+    # Check for steering messages or additional context
+    steering_context = ""
+    if hasattr(state, "pending_steering_messages") and state.pending_steering_messages:
+        steering_messages = [msg["message"] for msg in state.pending_steering_messages]
+        steering_context = f"\n\nUser also asked: {', '.join(steering_messages)}\nMake sure to address these additional questions in your analysis."
+        logger.info(
+            f"🔵 [DATABASE_REPORT] Including {len(steering_messages)} steering messages in analysis"
+        )
+
+    # Create analysis prompt
+    analysis_prompt = f"""
+You are a data analyst. Analyze the following database query results and provide:
+1. A concise Executive Summary (2-3 sentences)
+2. Key Findings (3-5 bullet points with specific numbers and insights)
+3. Detailed Analysis (2-3 paragraphs explaining patterns, trends, or notable observations)
+4. Recommendations or Conclusions (2-3 actionable insights or takeaways)
+
+Research Question: {state.research_topic}{steering_context}
+
+Database Query Results:
+{database_content}
+
+Generate a professional, insightful analysis. Focus on WHAT THE DATA MEANS, not just what it shows.
+Be specific with numbers and percentages. Highlight surprises or notable patterns.
+
+Format your response as plain text with clear section headers.
+"""
+
+    try:
+        logger.info("🔵 [DATABASE_REPORT] Calling LLM for analysis...")
+        response = llm.invoke([HumanMessage(content=analysis_prompt)])
+        analysis_text = (
+            response.content if hasattr(response, "content") else str(response)
+        )
+        logger.info(
+            f"🔵 [DATABASE_REPORT] LLM analysis generated successfully, length: {len(analysis_text)} characters"
+        )
+        logger.info(f"🔵 [DATABASE_REPORT] Analysis preview: {analysis_text[:200]}...")
+    except Exception as e:
+        logger.error(f"🔴 [DATABASE_REPORT] Error generating LLM analysis: {e}")
+        analysis_text = (
+            "Analysis could not be generated. Please review the data results above."
+        )
+
+    # Use inline styles to avoid CSS being stripped by the cleaner
+    report_content = f"""<div style="font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; line-height: 1.6;">
+    
+    <h1 style="color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; margin-bottom: 20px;">📊 Data Analysis Report</h1>
+    
+    <div style="background-color: #e8f5e8; border: 1px solid #4caf50; border-radius: 5px; padding: 15px; margin: 20px 0;">
+        <h3 style="color: #2c3e50; margin-top: 0;">Research Overview</h3>
+        <p style="margin: 5px 0;"><strong>Question:</strong> {state.research_topic}</p>
+        <p style="margin: 5px 0;"><strong>Analysis Date:</strong> {datetime.now().strftime('%B %d, %Y')}</p>
+        <p style="margin: 5px 0;"><strong>Data Source:</strong> Uploaded Database</p>
+    </div>
+    
+    <div style="background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 5px; padding: 15px; margin: 20px 0;">
+        <h3 style="color: #856404; margin-top: 0;">📌 Analysis Summary</h3>
+        <div style="white-space: pre-wrap; color: #333;">{analysis_text}</div>
+    </div>
+    
+    <h2 style="color: #34495e; margin-top: 30px; border-left: 4px solid #3498db; padding-left: 15px;">📈 Query Results</h2>
+    
+    {database_content}
+    
+    <div style="margin-top: 30px; padding: 15px; background-color: #f8f9fa; border-left: 4px solid #6c757d; border-radius: 4px;">
+        <p style="margin: 0; font-size: 14px; color: #666;">
+            <strong>Note:</strong> This analysis is based on data extracted from your uploaded database using SQL queries. 
+            The insights above are generated using AI analysis of the query results.
+        </p>
+    </div>
+    
+    </div>"""
+
+    logger.info(
+        f"🔵 [DATABASE_REPORT] Final report content length: {len(report_content)} characters"
+    )
+
+    # Check if there are pending steering messages - if so, don't mark as complete yet
+    has_pending_steering = False
+    if hasattr(state, "pending_steering_messages") and state.pending_steering_messages:
+        has_pending_steering = True
+        logger.info(
+            f"🔵 [DATABASE_REPORT] Found {len(state.pending_steering_messages)} pending steering messages - continuing research"
+        )
+
+    # Update the state with the database report
+    # Only mark complete if no steering messages are pending
+    updated_state = state.model_copy(
+        update={
+            "running_summary": report_content,
+            "research_complete": not has_pending_steering,  # Don't complete if steering messages exist
+            "research_loop_count": getattr(state, "research_loop_count", 0) + 1,
+        }
+    )
+
+    if has_pending_steering:
+        logger.info(
+            "🔵 [DATABASE_REPORT] Report generated, but continuing research to process steering messages"
+        )
+    else:
+        logger.info("🔵 [DATABASE_REPORT] Database report generation complete!")
+
+    return updated_state
+
+
 def generate_report(state: SummaryState, config: RunnableConfig):
     """
     Generate a research report based on the current state.
@@ -649,6 +919,16 @@ def generate_report(state: SummaryState, config: RunnableConfig):
         print(
             f"[UPLOAD_TRACE] generate_report: State.uploaded_knowledge value: {getattr(state, 'uploaded_knowledge', 'MISSING')}"
         )
+
+    # CRITICAL DEBUG: Check steering state at function entry
+    logger.info(f"[generate_report] ===== STEERING DEBUG =====")
+    logger.info(
+        f"[generate_report] state.steering_enabled: {getattr(state, 'steering_enabled', 'MISSING')}"
+    )
+    logger.info(
+        f"[generate_report] state.steering_todo: {getattr(state, 'steering_todo', 'MISSING')}"
+    )
+    logger.info(f"[generate_report] ===========================")
 
     # Get the current research loop count
     research_loop_count = getattr(state, "research_loop_count", 0)
@@ -715,10 +995,14 @@ def generate_report(state: SummaryState, config: RunnableConfig):
 
                         if not found:
                             citation_key = str(citation_index)
-                            source_citations[citation_key] = {
+                            source_dict = {
                                 "title": source["title"],
                                 "url": source["url"],
                             }
+                            # Preserve source_type if it exists
+                            if "source_type" in source:
+                                source_dict["source_type"] = source["source_type"]
+                            source_citations[citation_key] = source_dict
                             citation_index += 1
 
         # Update state.source_citations with the newly extracted sources
@@ -790,6 +1074,18 @@ def generate_report(state: SummaryState, config: RunnableConfig):
 
     if source_citations:
         print(f"Using {len(source_citations)} source citations for summarizer")
+
+        # Check if we have database query results
+        database_sources = [
+            source
+            for source in source_citations.values()
+            if source.get("source_type") == "database"
+        ]
+        # Database results (from text2sql) are already well-formatted HTML tables
+        # They flow through normal report generation just like web search results
+        print(
+            f"[DEBUG] Total sources: {len(source_citations)}, Database sources: {len([s for s in source_citations if 'database://' in s])}"
+        )
     else:
         print("WARNING: No source citations found for summarizer. We'll still proceed.")
 
@@ -804,14 +1100,14 @@ def generate_report(state: SummaryState, config: RunnableConfig):
     # If user set llm_provider in state, prefer that
     if hasattr(state, "llm_provider") and state.llm_provider:
         provider = state.llm_provider
+    else:
+        # Default to Google Gemini for report generation
+        provider = "google"
+
     if hasattr(state, "llm_model") and state.llm_model:
         model = state.llm_model
     else:
-        model = configurable.llm_model
-
-    # For our summarization step, let's default to openai o3-mini-reasoning if no model is set
-    if not model and provider == "openai":
-        model = "o3-mini-reasoning"
+        model = configurable.llm_model or "gemini-2.5-pro"
 
     print(f"[generate_report] Summarizing with provider={provider}, model={model}")
     from llm_clients import get_llm_client
@@ -912,6 +1208,29 @@ def reflect_on_report(state: SummaryState, config: Dict[str, Any]) -> Dict[str, 
         Updated state with research_loop_count incremented and possibly new search_query
     """
     try:
+        # CRITICAL DEBUG: Check steering state at function entry
+        logger.info(f"[reflect_on_report] ===== STEERING DEBUG =====")
+        logger.info(
+            f"[reflect_on_report] state.steering_enabled: {getattr(state, 'steering_enabled', 'MISSING')}"
+        )
+        logger.info(
+            f"[reflect_on_report] state.steering_todo: {getattr(state, 'steering_todo', 'MISSING')}"
+        )
+        logger.info(
+            f"[reflect_on_report] state.steering_todo type: {type(getattr(state, 'steering_todo', None))}"
+        )
+        if hasattr(state, "steering_todo") and state.steering_todo:
+            logger.info(
+                f"[reflect_on_report] steering_todo.tasks count: {len(state.steering_todo.tasks)}"
+            )
+            logger.info(
+                f"[reflect_on_report] steering_todo.pending_messages: {len(state.steering_todo.pending_messages)}"
+            )
+        logger.info(f"[reflect_on_report] ===========================")
+
+        # IMPORTANT: If we have a database report, skip LLM reflection and mark complete
+        # All reports go through normal reflection, including database results
+
         configurable = get_configurable(config)
 
         # Get current research state
@@ -937,17 +1256,46 @@ def reflect_on_report(state: SummaryState, config: Dict[str, Any]) -> Dict[str, 
 
         # Check if we've reached the maximum number of research loops
         if next_research_loop_count > max_research_loops:
+            # PRIORITY CHECK: Only steering messages prevent max_loop stop (NOT tasks!)
+            # User requirement: "if no steering messages left to process, but if max_loops reached then research stops"
+            pending_messages_count = 0
+
+            if (
+                hasattr(state, "pending_steering_messages")
+                and state.pending_steering_messages
+            ):
+                pending_messages_count = len(state.pending_steering_messages)
+
+            # Also check todo manager for pending messages
+            if hasattr(state, "steering_todo") and state.steering_todo:
+                pending_messages_count += len(state.steering_todo.pending_messages)
+
+            if pending_messages_count > 0:
+                logger.warning(
+                    f"[REFLECT] 🚨 Max loops reached but {pending_messages_count} steering messages still need processing - MUST continue"
+                )
+                research_complete = False  # MUST process all steering messages
+            else:
+                logger.info(
+                    f"[REFLECT] 🛑 Max loops reached with no steering messages - STOPPING research"
+                )
+                research_complete = True  # Hard stop at max loops
+
             print(
-                f"REFLECTION DECISION: Reached maximum research loops ({max_research_loops}). Forcing completion."
+                f"REFLECTION DECISION: Reached maximum research loops ({max_research_loops}). Pending steering messages: {pending_messages_count}, research_complete={research_complete}"
             )
             return {
                 # Fields calculated/updated by this node
                 "research_loop_count": next_research_loop_count,
-                "research_complete": True,
+                "research_complete": research_complete,
                 "knowledge_gap": "",
                 "search_query": "",
                 "extra_effort": extra_effort,
                 "minimum_effort": minimum_effort,
+                # Reflection metadata (max loops reached)
+                "priority_section": None,
+                "section_gaps": None,
+                "evaluation_notes": "Max loops reached, forcing completion",
                 # <<< START FIX: Preserve fields from input state >>>
                 "research_topic": state.research_topic,
                 "running_summary": state.running_summary,
@@ -963,9 +1311,9 @@ def reflect_on_report(state: SummaryState, config: Dict[str, Any]) -> Dict[str, 
                 # <<< END FIX >>>
             }
 
-        # Get LLM client
-        provider = configurable.llm_provider or "openai"
-        model = configurable.llm_model or "o3-mini-reasoning"
+        # Get LLM client - use Gemini for reflection
+        provider = configurable.llm_provider or "google"
+        model = configurable.llm_model or "gemini-2.5-pro"
 
         # Prioritize provider and model from state if they exist
         if hasattr(state, "llm_provider") and state.llm_provider:
@@ -1000,12 +1348,77 @@ When evaluating completeness, consider:
         else:
             AUGMENT_KNOWLEDGE_CONTEXT = "No user-provided external knowledge available. Evaluate completeness based solely on web research results."
 
+        # CRITICAL: Collect todo context and steering messages for unified reflection
+        # NEW ARCHITECTURE: Send ONLY pending tasks for completion evaluation
+        # Completed tasks sent separately when creating NEW tasks (to avoid duplicates)
+        pending_tasks_for_reflection = ""
+        completed_tasks_context = ""
+        steering_messages = ""
+        print(f"[reflect_on_report] state.steering_todo: {state.steering_todo}")
+        if hasattr(state, "steering_todo") and state.steering_todo:
+            # Get ONLY pending tasks for LLM to evaluate completion
+            pending_tasks_for_reflection = (
+                state.steering_todo.get_pending_tasks_for_llm()
+            )
+            logger.info(
+                f"[reflect_on_report] pending_tasks_for_reflection length: {len(pending_tasks_for_reflection)}"
+            )
+            logger.debug(
+                f"[reflect_on_report] pending_tasks_for_reflection content:\n{pending_tasks_for_reflection[:500]}"
+            )
+
+            # Get completed tasks context (for creating new tasks without duplicates)
+            # IMPORTANT: Show ALL completed tasks to prevent duplicates!
+            completed_tasks_context = state.steering_todo.get_completed_tasks_for_llm(
+                limit=None  # Show ALL completed tasks, not just 10
+            )
+            completed_count = len(state.steering_todo.get_completed_tasks())
+            logger.info(
+                f"[reflect_on_report] Showing {completed_count} completed tasks to LLM (length: {len(completed_tasks_context)} chars)"
+            )
+            logger.info(
+                f"[reflect_on_report] completed_tasks_context preview:\n{completed_tasks_context[:800]}"
+            )
+
+            # CRITICAL: Snapshot the message queue to prevent race conditions
+            # If user sends messages DURING reflection, we need to preserve them
+            messages_snapshot = list(state.steering_todo.pending_messages)
+
+            # Get pending steering messages (queued by prepare_steering_for_next_loop)
+            # Index messages with [0], [1], etc. for LLM to reference in clear_messages
+            if messages_snapshot:
+                steering_messages = "\n".join(
+                    [f'[{i}] "{msg}"' for i, msg in enumerate(messages_snapshot)]
+                )
+                logger.info(
+                    f"[reflect_on_report] Snapshotted {len(messages_snapshot)} steering messages for LLM processing"
+                )
+            else:
+                steering_messages = "No new steering messages this loop"
+
+            logger.info(
+                f"[reflect_on_report] Pending tasks: {len(state.steering_todo.get_pending_tasks())}"
+            )
+            logger.info(
+                f"[reflect_on_report] Completed tasks: {len(state.steering_todo.get_completed_tasks())}"
+            )
+            logger.info(
+                f"[reflect_on_report] Steering messages: {len(state.steering_todo.pending_messages)}"
+            )
+        else:
+            pending_tasks_for_reflection = "No todo list active (steering disabled)"
+            completed_tasks_context = ""
+            steering_messages = "No steering system active"
+
         formatted_prompt = reflection_instructions.format(
             research_topic=research_topic,
             current_date=CURRENT_DATE,
             current_year=CURRENT_YEAR,
             one_year_ago=ONE_YEAR_AGO,
             AUGMENT_KNOWLEDGE_CONTEXT=AUGMENT_KNOWLEDGE_CONTEXT,
+            pending_tasks=pending_tasks_for_reflection,
+            completed_tasks=completed_tasks_context,
+            steering_messages=steering_messages,
         )
 
         # Prepare the current summary for analysis
@@ -1034,16 +1447,30 @@ When evaluating completeness, consider:
                 response  # SimpleOpenAIClient or Claude3ExtendedClient returns a string
             )
 
-        # Parse the response
+        # Parse the response - extract JSON from <answer> tags
+        def parse_wrapped_response(reg_exp, text_phrase):
+            match = re.search(reg_exp, text_phrase, re.DOTALL)
+            if match:
+                return match.group(1)
+            return ""
+
         try:
-            # Look for JSON block in response
-            json_match = re.search(r"```json\n(.*?)\n```", content, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(1)
+            # First try to extract from <answer> tags
+            json_str = parse_wrapped_response(r"<answer>\s*(.*?)\s*</answer>", content)
+
+            if json_str:
+                # Clean up the JSON string
+                json_str = json_str.strip()
                 result = json.loads(json_str)
             else:
-                # Try parsing the entire content as JSON
-                result = json.loads(content)
+                # Fallback: Look for JSON block in markdown code blocks
+                json_match = re.search(r"```json\n(.*?)\n```", content, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(1)
+                    result = json.loads(json_str)
+                else:
+                    # Last resort: Try parsing the entire content as JSON
+                    result = json.loads(content)
 
             # Log the reflection result
             print("  - Parsed LLM Reflection Result:")
@@ -1053,6 +1480,30 @@ When evaluating completeness, consider:
             research_complete = result.get("research_complete", False)
             knowledge_gap = result.get("knowledge_gap", "")
             search_query = result.get("follow_up_query", "")
+
+            # Check for pending steering messages - override research_complete if messages pending
+            has_pending_steering = (
+                hasattr(state, "pending_steering_messages")
+                and state.pending_steering_messages
+            )
+
+            # CRITICAL: Check for pending steering messages in todo manager
+            if hasattr(state, "steering_todo") and state.steering_todo:
+                todo_pending_messages = len(state.steering_todo.pending_messages)
+                if todo_pending_messages > 0:
+                    has_pending_steering = True
+                    logger.info(
+                        f"[REFLECT] Found {todo_pending_messages} pending steering messages in todo manager"
+                    )
+
+            if has_pending_steering and research_complete:
+                logger.info(
+                    f"[REFLECT] LLM marked complete but {len(state.pending_steering_messages) if hasattr(state, 'pending_steering_messages') else 0} steering messages pending - continuing research"
+                )
+                research_complete = False
+                # Create knowledge gap for steering messages
+                if not knowledge_gap:
+                    knowledge_gap = "Process pending steering messages"
 
             # Extract the research_topic field, or use the original if not provided
             preserved_research_topic = result.get("research_topic", research_topic)
@@ -1067,15 +1518,282 @@ When evaluating completeness, consider:
             else:
                 print("  - LLM determined research should continue.")
 
+            # CRITICAL: Process todo_updates from LLM response
+            if hasattr(state, "steering_todo") and state.steering_todo:
+                todo_updates = result.get("todo_updates", {})
+                logger.info(
+                    f"[reflect_on_report] LLM result keys: {list(result.keys())}"
+                )
+                logger.info(
+                    f"[reflect_on_report] todo_updates present: {bool(todo_updates)}"
+                )
+                logger.info(f"[reflect_on_report] todo_updates content: {todo_updates}")
+
+                if todo_updates:
+
+                    # Mark tasks as completed (only if they're currently PENDING or IN_PROGRESS)
+                    from src.simple_steering import TaskStatus
+
+                    mark_completed_list = todo_updates.get("mark_completed", [])
+                    logger.info(
+                        f"[reflect_on_report] mark_completed list: {mark_completed_list}"
+                    )
+
+                    for task_id in mark_completed_list:
+                        logger.info(f"🔍 [DEBUG] Processing task_id: {task_id}")
+
+                        if task_id in state.steering_todo.tasks:
+                            logger.info(
+                                f"🔍 [DEBUG] Task {task_id} found in tasks dict"
+                            )
+                            task = state.steering_todo.tasks[task_id]
+                            logger.info(f"🔍 [DEBUG] Task status: {task.status}")
+
+                            # Only mark as completed if it's NOT already completed
+                            if task.status == TaskStatus.COMPLETED:
+                                logger.debug(
+                                    f"[reflect_on_report] Task {task_id} already COMPLETED, skipping"
+                                )
+                                continue
+
+                            # Only mark as completed if it's PENDING or IN_PROGRESS
+                            if task.status in [
+                                TaskStatus.PENDING,
+                                TaskStatus.IN_PROGRESS,
+                            ]:
+                                state.steering_todo.mark_task_completed(
+                                    task_id,
+                                    completion_note="Addressed in research loop",
+                                )
+                                logger.info(
+                                    f"[reflect_on_report] ✓ Marked task {task_id} as completed"
+                                )
+                            else:
+                                logger.debug(
+                                    f"[reflect_on_report] Task {task_id} has status {task.status.name}, not marking completed"
+                                )
+                        else:
+                            logger.warning(
+                                f"[reflect_on_report] ⚠️ Task {task_id} not found in tasks dict. Available tasks: {list(state.steering_todo.tasks.keys())[:5]}"
+                            )
+
+                    # Cancel tasks
+                    cancel_tasks_list = todo_updates.get("cancel_tasks", [])
+                    logger.info(
+                        f"[reflect_on_report] cancel_tasks list: {cancel_tasks_list}"
+                    )
+                    for task_id in cancel_tasks_list:
+                        if task_id in state.steering_todo.tasks:
+                            state.steering_todo.mark_task_cancelled(
+                                task_id, reason="No longer relevant based on findings"
+                            )
+                            logger.info(
+                                f"[reflect_on_report] ✗ Cancelled task {task_id}"
+                            )
+
+                    # Add new tasks with source-based priority
+                    # Priority mapping: steering_message=10, original_query=9, knowledge_gap=7
+                    SOURCE_PRIORITY = {
+                        "steering_message": 10,  # User explicitly requested
+                        "original_query": 9,  # From initial research query
+                        "knowledge_gap": 7,  # System-identified gaps
+                    }
+
+                    add_tasks_list = todo_updates.get("add_tasks", [])
+                    logger.info(
+                        f"[reflect_on_report] add_tasks list length: {len(add_tasks_list)}"
+                    )
+                    for i, new_task in enumerate(add_tasks_list):
+                        source = new_task.get("source", "knowledge_gap")
+                        priority = SOURCE_PRIORITY.get(source, 8)
+
+                        logger.info(
+                            f"[reflect_on_report] Processing new task {i+1}/{len(add_tasks_list)}: {new_task}"
+                        )
+                        task_id = state.steering_todo.create_task(
+                            description=new_task.get("description", ""),
+                            priority=priority,
+                            source=source,
+                            created_from_message=new_task.get(
+                                "rationale", "Added by reflection"
+                            ),
+                        )
+                        logger.info(
+                            f"[reflect_on_report] + Added task {task_id} (source: {source}, priority: {priority}): {new_task.get('description', '')[:60]}"
+                        )
+
+                    # SMART MESSAGE CLEARING: Only clear messages LLM says are fully addressed
+                    # Use the snapshot to avoid race conditions with messages added during reflection
+                    clear_message_indices = todo_updates.get("clear_messages", [])
+                    if clear_message_indices:
+                        original_snapshot_count = len(messages_snapshot)
+
+                        # Clear from snapshot (not live list!)
+                        remaining_snapshot_messages = [
+                            msg
+                            for i, msg in enumerate(messages_snapshot)
+                            if i not in clear_message_indices
+                        ]
+
+                        # Now merge: Keep any NEW messages added during reflection + remaining snapshot messages
+                        current_live_messages = state.steering_todo.pending_messages
+                        new_messages_during_reflection = [
+                            msg
+                            for msg in current_live_messages
+                            if msg not in messages_snapshot
+                        ]
+
+                        # Final queue = remaining snapshot + new messages
+                        state.steering_todo.pending_messages = (
+                            remaining_snapshot_messages + new_messages_during_reflection
+                        )
+
+                        cleared_count = original_snapshot_count - len(
+                            remaining_snapshot_messages
+                        )
+                        if new_messages_during_reflection:
+                            logger.info(
+                                f"[reflect_on_report] ⚡ {len(new_messages_during_reflection)} new messages arrived during reflection - preserved!"
+                            )
+                        logger.info(
+                            f"[reflect_on_report] Cleared {cleared_count}/{original_snapshot_count} steering messages: indices {clear_message_indices}"
+                        )
+                    else:
+                        logger.info(
+                            f"[reflect_on_report] No messages cleared (LLM didn't specify any in clear_messages)"
+                        )
+
+                    # Session store is automatically synced since we modified state.steering_todo.pending_messages directly
+                    # The UI polling endpoint reads from state.steering_todo.pending_messages
+                    # No need to manually update session store
+
+                    # Update todo version
+                    state.steering_todo.todo_version += 1
+                    logger.info(
+                        f"[reflect_on_report] Updated todo version to {state.steering_todo.todo_version}"
+                    )
+
+                    # CRITICAL: Update session store so UI polling picks up the changes
+                    # Retry logic to ensure UI gets the update
+                    session_update_success = False
+                    max_retries = 3
+
+                    for attempt in range(max_retries):
+                        try:
+                            from routers.simple_steering_api import (
+                                active_research_sessions,
+                            )
+
+                            # Get session ID directly from config (much cleaner!)
+                            session_id = config.get("configurable", {}).get("stream_id")
+
+                            if not session_id:
+                                logger.warning(
+                                    f"[reflect_on_report] No session ID in config (attempt {attempt + 1}). Config keys: {list(config.get('configurable', {}).keys())}"
+                                )
+                                break  # No point retrying if no session ID
+
+                            if session_id not in active_research_sessions:
+                                logger.warning(
+                                    f"[reflect_on_report] Session {session_id} not in active_research_sessions (attempt {attempt + 1}). Active sessions: {list(active_research_sessions.keys())}"
+                                )
+                                if attempt < max_retries - 1:
+                                    from time import sleep
+
+                                    sleep(0.1)  # Wait for registration
+                                continue
+
+                            # IMPORTANT: Update the state reference in the session
+                            # LangGraph creates new state instances, so the stored reference gets stale
+                            active_research_sessions[session_id]["state"] = state
+                            session_update_success = True
+                            logger.info(
+                                f"[reflect_on_report] ✅ Updated session {session_id} state reference for UI polling (attempt {attempt + 1})"
+                            )
+                            logger.info(
+                                f"[reflect_on_report] Pending messages after update: {len(state.steering_todo.pending_messages)}"
+                            )
+                            break  # Success - exit retry loop
+
+                        except ImportError as e:
+                            logger.error(
+                                f"[reflect_on_report] Failed to import active_research_sessions (attempt {attempt + 1}): {e}"
+                            )
+                            break  # Import error won't fix itself
+                        except KeyError as e:
+                            logger.error(
+                                f"[reflect_on_report] KeyError accessing session (attempt {attempt + 1}): {e}"
+                            )
+                            if attempt < max_retries - 1:
+                                from time import sleep
+
+                                sleep(0.1)
+                        except Exception as e:
+                            logger.error(
+                                f"[reflect_on_report] Unexpected error updating session (attempt {attempt + 1}/{max_retries}): {type(e).__name__}: {e}"
+                            )
+                            if attempt < max_retries - 1:
+                                from time import sleep
+
+                                sleep(0.1)  # Brief delay before retry
+
+                    if not session_update_success and clear_message_indices:
+                        logger.error(
+                            "🚨 [reflect_on_report] CRITICAL: Session state update failed after all retries - UI queue may not clear!"
+                        )
+
+            # CRITICAL: Final validation - check ONLY pending steering messages (NOT tasks!)
+            # User requirement: "research can stop only if steered_message_queue is empty"
+            final_pending_messages = 0
+            if hasattr(state, "steering_todo") and state.steering_todo:
+                final_pending_messages = len(state.steering_todo.pending_messages)
+
+                if final_pending_messages > 0 and research_complete:
+                    logger.warning(
+                        f"[REFLECT] 🚨 LLM marked complete but {final_pending_messages} steering messages still need processing - OVERRIDING to continue"
+                    )
+                    research_complete = False
+                    if not knowledge_gap:
+                        knowledge_gap = f"Process {final_pending_messages} pending steering messages"
+                    if not search_query:
+                        search_query = "Continue research to process steering messages"
+
             # Log the reflection decision
             print(
                 f"REFLECTION DECISION: Proceeding to loop {next_research_loop_count}."
             )
             print(f"  - research_complete set to: {research_complete}")
+            print(f"  - Pending steering messages: {final_pending_messages}")
             print(f"  - Identified knowledge gap: '{knowledge_gap}'")
             print(f"  - New search query: '{search_query}'")
             print(f"  - Research topic: '{preserved_research_topic}'")
             print("--- REFLECTION END ---")
+
+            # Log complete reflection execution step (non-invasive, never fails research)
+            try:
+                if hasattr(state, "log_execution_step"):
+                    state.log_execution_step(
+                        step_type="llm_call",
+                        action="reflect_on_report",
+                        input_data={
+                            "running_summary": (
+                                current_summary[:500] + "..."
+                                if len(current_summary) > 500
+                                else current_summary
+                            )
+                        },
+                        output_data={
+                            "research_complete": research_complete,
+                            "knowledge_gap": knowledge_gap,
+                            "priority_section": result.get("priority_section"),
+                            "section_gaps": result.get("section_gaps"),
+                            "evaluation_notes": result.get("evaluation_notes"),
+                            "follow_up_query": search_query,
+                        },
+                        metadata={"provider": provider, "model": model},
+                    )
+            except Exception:
+                pass  # Logging errors should never break research
 
             # Return updated state
             return {
@@ -1087,6 +1805,10 @@ When evaluating completeness, consider:
                 "research_topic": preserved_research_topic,
                 "extra_effort": extra_effort,
                 "minimum_effort": minimum_effort,
+                # Reflection metadata (for trajectory capture)
+                "priority_section": result.get("priority_section"),
+                "section_gaps": result.get("section_gaps"),
+                "evaluation_notes": result.get("evaluation_notes"),
                 # <<< START FIX: Preserve fields from input state >>>
                 "research_topic": state.research_topic,
                 "running_summary": state.running_summary,
@@ -1099,6 +1821,9 @@ When evaluating completeness, consider:
                 "code_snippets": getattr(
                     state, "code_snippets", []
                 ),  # Preserve code_snippets
+                # CRITICAL: Preserve steering state
+                "steering_enabled": getattr(state, "steering_enabled", False),
+                "steering_todo": getattr(state, "steering_todo", None),
                 # <<< END FIX >>>
             }
 
@@ -1133,6 +1858,10 @@ When evaluating completeness, consider:
                 "research_topic": research_topic,
                 "extra_effort": extra_effort,
                 "minimum_effort": minimum_effort,
+                # Reflection metadata (fallback - empty for trajectory capture)
+                "priority_section": None,
+                "section_gaps": None,
+                "evaluation_notes": "Reflection parsing failed, using fallback",
                 # <<< START FIX: Preserve fields from input state >>>
                 "research_topic": state.research_topic,
                 "running_summary": state.running_summary,
@@ -1184,7 +1913,15 @@ def finalize_report(state: SummaryState, config: RunnableConfig):
     # Get configuration
     configurable = Configuration.from_runnable_config(config)
 
-    # Get the current summary and raw results
+    # Note: Steering messages that arrive during finalization are queued but don't interrupt the finalization process.
+    if hasattr(state, "steering_todo") and state.steering_todo:
+        pending_count = len(state.steering_todo.pending_messages)
+        if pending_count > 0:
+            logger.info(
+                f"[finalize_report] {pending_count} steering message(s) queued but not interrupting finalization."
+            )
+
+    # All reports go through normal finalization, including database results
     current_summary = state.running_summary or ""
     web_research_results = state.web_research_results or []
 
@@ -1263,10 +2000,14 @@ def finalize_report(state: SummaryState, config: RunnableConfig):
 
                         if not found:
                             citation_key = str(citation_index)
-                            source_citations[citation_key] = {
+                            source_dict = {
                                 "title": source["title"],
                                 "url": source["url"],
                             }
+                            # Preserve source_type if it exists
+                            if "source_type" in source:
+                                source_dict["source_type"] = source["source_type"]
+                            source_citations[citation_key] = source_dict
                             citation_index += 1
 
         # Update state.source_citations with the newly extracted sources
@@ -1372,19 +2113,15 @@ def finalize_report(state: SummaryState, config: RunnableConfig):
     # Prioritize provider and model from state if they exist
     if hasattr(state, "llm_provider") and state.llm_provider:
         provider = state.llm_provider
-
-    # For OpenAI provider, always use o3-mini-reasoning for final summary
-    if provider == "openai":
-        model = "o3-mini-reasoning"
-        print(
-            f"Using enhanced reasoning model (o3-mini-reasoning) for finalizing summary"
-        )
     else:
-        # Prioritize model from state if it exists
-        if hasattr(state, "llm_model") and state.llm_model:
-            model = state.llm_model
-        else:
-            model = configurable.llm_model
+        # Default to Google Gemini for report finalization
+        provider = "google"
+
+    # Use Gemini 2.5 Pro for final summary
+    if hasattr(state, "llm_model") and state.llm_model:
+        model = state.llm_model
+    else:
+        model = "gemini-2.5-pro"
 
     logger.info(f"[finalize_report] Using provider: {provider}, model: {model}")
     llm = get_llm_client(provider, model)
@@ -1432,11 +2169,60 @@ INTEGRATION INSTRUCTIONS: Use the above uploaded knowledge as your primary found
 
 """
 
+    # CRITICAL: Include todo completion status and user steering intentions in final report
+    todo_completion_section = ""
+    if hasattr(state, "steering_todo") and state.steering_todo:
+        completed_tasks = state.steering_todo.get_completed_tasks()
+        pending_tasks = state.steering_todo.get_pending_tasks()
+        all_messages = getattr(state.steering_todo, "all_user_messages", [])
+
+        if completed_tasks or pending_tasks or all_messages:
+            todo_completion_section = f"""
+
+USER STEERING AND TODO COMPLETION STATUS:
+------------------------------------------------------------
+The user provided {len(all_messages)} steering messages during research to guide the process.
+These messages represent the user's TRUE NEEDS and PRIORITIES for the final report.
+
+COMPLETED RESEARCH TASKS ({len(completed_tasks)} tasks):
+"""
+            for task in completed_tasks[-10:]:  # Last 10 completed tasks
+                todo_completion_section += f"✓ {task.description}\n"
+                if task.completed_note:
+                    todo_completion_section += f"  └─ {task.completed_note}\n"
+
+            if pending_tasks:
+                todo_completion_section += (
+                    f"\n\nREMAINING TASKS NOT COMPLETED ({len(pending_tasks)} tasks):\n"
+                )
+                for task in pending_tasks[:5]:  # First 5 pending tasks
+                    todo_completion_section += (
+                        f"⚠ {task.description} (Priority: {task.priority})\n"
+                    )
+
+            if all_messages:
+                todo_completion_section += (
+                    f"\n\nUSER'S STEERING MESSAGES (in chronological order):\n"
+                )
+                for i, msg in enumerate(all_messages[-10:], 1):  # Last 10 messages
+                    todo_completion_section += f'{i}. "{msg}"\n'
+
+            todo_completion_section += f"""
+
+CRITICAL INSTRUCTION FOR FINAL REPORT:
+Your final report MUST address all completed tasks and respect all user steering messages above.
+The report should reflect the user's refined intentions throughout the research process.
+If any high-priority pending tasks remain, acknowledge them as areas for future research.
+The report should feel like it was written specifically to answer the user's evolving needs.
+
+"""
+
     if using_raw_content:
         human_message = (
             f"Please create a polished final report with a descriptive title based on the following sources.\n\n"
             f"IMPORTANT: Begin your report with a clear, descriptive title in the format 'Profile of [Person]: [Role/Position]' or similar format appropriate to the topic. For example: 'Profile of Dr. Caiming Xiong: AI Research Leader at Salesforce' or 'State-of-the-Art Data Strategies for Pretraining 7B Parameter LLMs from Scratch'.\n\n"
             f"{uploaded_knowledge_section}"
+            f"{todo_completion_section}"
             f"Raw Research Content from Web Search:\n{input_content_for_finalization}\n\n"
             f"Numbered Sources for Citation:\n{formatted_sources_for_prompt}"
         )
@@ -1445,6 +2231,7 @@ INTEGRATION INSTRUCTIONS: Use the above uploaded knowledge as your primary found
             f"Please finalize this research summary into a polished document with a descriptive title.\n\n"
             f"IMPORTANT: Begin your report with a clear, descriptive title in the format 'Profile of [Person]: [Role/Position]' or similar format appropriate to the topic. For example: 'Profile of Dr. Caiming Xiong: AI Research Leader at Salesforce' or 'State-of-the-Art Data Strategies for Pretraining 7B Parameter LLMs from Scratch'.\n\n"
             f"{uploaded_knowledge_section}"
+            f"{todo_completion_section}"
             f"Working Summary from Web Research:\n{input_content_for_finalization}\n\n"
             f"Numbered Sources for Citation:\n{formatted_sources_for_prompt}"
         )
@@ -1571,22 +2358,42 @@ INTEGRATION INSTRUCTIONS: Use the above uploaded knowledge as your primary found
     )
 
     # Convert horizontal table of contents to vertical list format
-    toc_pattern = r"<h2>Table of Contents</h2>\s*\n*([^#<]+)"
-    toc_match = re.search(toc_pattern, finalized_summary)
+    # Handle both bullet-separated and dash-separated formats
+    toc_pattern = r"<h2>Table of Contents</h2>\s*\n*([^#<]+?)(?=\n\n|<h2>|##)"
+    toc_match = re.search(toc_pattern, finalized_summary, re.DOTALL)
     if toc_match:
-        horizontal_toc = toc_match.group(1).strip()
-        # Split by dashes and create list items
-        if " - " in horizontal_toc:
-            toc_items = horizontal_toc.split(" - ")
+        toc_content = toc_match.group(1).strip()
+
+        # First, split by newlines to get individual lines
+        lines = [line.strip() for line in toc_content.split("\n") if line.strip()]
+
+        # Then process each line - split by " - " if present
+        all_toc_items = []
+        for line in lines:
+            # Remove leading bullet markers (-, •, *, etc.)
+            line = re.sub(r"^[\-•*]\s*", "", line)
+
+            # Split by " - " to handle concatenated sections
+            if " - " in line:
+                items = [item.strip() for item in line.split(" - ") if item.strip()]
+                all_toc_items.extend(items)
+            elif line:
+                all_toc_items.append(line)
+
+        # Create properly formatted vertical TOC
+        if all_toc_items:
             vertical_toc = (
                 "<ul>\n"
-                + "\n".join(
-                    [f"<li>{item.strip()}</li>" for item in toc_items if item.strip()]
-                )
+                + "\n".join([f"<li>{item}</li>" for item in all_toc_items])
                 + "\n</ul>"
             )
-            # Replace the horizontal TOC with vertical list
-            finalized_summary = finalized_summary.replace(horizontal_toc, vertical_toc)
+            # Replace the entire TOC section
+            finalized_summary = re.sub(
+                toc_pattern,
+                f"<h2>Table of Contents</h2>\n{vertical_toc}",
+                finalized_summary,
+                flags=re.DOTALL,
+            )
 
     # create a copy for markdown report
     import copy
@@ -1827,6 +2634,16 @@ INTEGRATION INSTRUCTIONS: Use the above uploaded knowledge as your primary found
         unplaced_count = len(all_visualizations) - len(placed_visualization_ids)
         print(
             f"ℹ️ {unplaced_count} visualizations were not placed via markers and will be shown through the activity events system instead."
+        )
+
+    # CLEANUP: Remove any unreplaced [INSERT IMAGE X] markers from the report
+    # This prevents placeholder text from appearing in the final output
+    marker_pattern = r"\[INSERT IMAGE \d+\]"
+    original_markers = re.findall(marker_pattern, finalized_summary)
+    if original_markers:
+        finalized_summary = re.sub(marker_pattern, "", finalized_summary)
+        print(
+            f"🧹 Cleaned up {len(original_markers)} unreplaced image markers: {original_markers}"
         )
 
     # Check if we need a report container
@@ -2108,6 +2925,55 @@ def post_process_benchmark_answer(answer, source_citations):
         # Append to the answer
         answer += references_section
 
+    # Fix any generic citations that might have been generated
+    import re
+
+    # Multiple patterns to catch different variations of generic citations
+    generic_citation_patterns = [
+        r"\[(\d+)\]\s*Source\s+\d+,\s*as\s+cited\s+in\s+the\s+provided\s+research\s+summary",
+        r"\[(\d+)\]\s*Source\s+\d+,\s*as\s+cited\s+in\s+the\s+research\s+summary",
+        r"\[(\d+)\]\s*Source\s+\d+,\s*as\s+cited\s+in\s+the\s+provided\s+research",
+        r"\[(\d+)\]\s*Source\s+\d+,\s*as\s+cited\s+in\s+research",
+        r"\[(\d+)\]\s*Source\s+\d+",
+        r"\[(\d+)\]\s*Source\s+\d+,\s*as\s+cited",
+    ]
+
+    all_matches = []
+    for pattern in generic_citation_patterns:
+        matches = re.findall(pattern, answer, re.IGNORECASE)
+        all_matches.extend(matches)
+
+    matches = list(set(all_matches))  # Remove duplicates
+
+    if matches:
+        print(f"Fixing {len(matches)} generic citations in benchmark answer")
+        for citation_num in matches:
+            if citation_num in source_citations:
+                src = source_citations[citation_num]
+                title = src.get("title", "Unknown Title")
+                url = src.get("url", "")
+                author = src.get("author")
+                year = src.get("year")
+
+                # Replace with proper format
+                if author and year:
+                    replacement = f"[{citation_num}] {author} et al. ({year}) {title}"
+                elif author:
+                    replacement = f"[{citation_num}] {author} et al. {title}"
+                elif year:
+                    replacement = f"[{citation_num}] ({year}) {title}"
+                else:
+                    replacement = f"[{citation_num}] {title}"
+
+                # Replace all variations of generic citations
+                for pattern in generic_citation_patterns:
+                    answer = re.sub(
+                        pattern.replace(r"(\d+)", citation_num),
+                        replacement,
+                        answer,
+                        flags=re.IGNORECASE,
+                    )
+
     # Check for citation consistency (same logic as regular mode)
     # Get all citation numbers used in the answer
     citation_pattern = r"\[(\d+(?:,\s*\d+)*)\]"
@@ -2152,6 +3018,8 @@ def post_process_report(report, source_citations):
     # Convert markdown headers to proper HTML for better styling
 
     # First identify and convert the main title (first # header)
+    import re
+
     title_pattern = r"^#\s+(.*?)$"
     match = re.search(title_pattern, report, re.MULTILINE)
     if match:
@@ -2198,6 +3066,44 @@ def post_process_report(report, source_citations):
 
         # Append to the report
         report += references_section
+
+    # Fix any generic citations that might have been generated
+    # Multiple patterns to catch different variations of generic citations
+    generic_citation_patterns = [
+        r"\[(\d+)\]\s*Source\s+\d+,\s*as\s+cited\s+in\s+the\s+provided\s+research\s+summary",
+        r"\[(\d+)\]\s*Source\s+\d+,\s*as\s+cited\s+in\s+the\s+research\s+summary",
+        r"\[(\d+)\]\s*Source\s+\d+,\s*as\s+cited\s+in\s+the\s+provided\s+research",
+        r"\[(\d+)\]\s*Source\s+\d+,\s*as\s+cited\s+in\s+research",
+        r"\[(\d+)\]\s*Source\s+\d+",
+        r"\[(\d+)\]\s*Source\s+\d+,\s*as\s+cited",
+    ]
+
+    all_matches = []
+    for pattern in generic_citation_patterns:
+        matches = re.findall(pattern, report, re.IGNORECASE)
+        all_matches.extend(matches)
+
+    matches = list(set(all_matches))  # Remove duplicates
+
+    if matches:
+        print(f"Fixing {len(matches)} generic citations in report")
+        for citation_num in matches:
+            if citation_num in source_citations:
+                src = source_citations[citation_num]
+                title = src.get("title", "Unknown Title")
+                url = src.get("url", "")
+
+                # Replace with proper format
+                replacement = f"[{citation_num}] {title}"
+
+                # Replace all variations of generic citations
+                for pattern in generic_citation_patterns:
+                    report = re.sub(
+                        pattern.replace(r"(\d+)", citation_num),
+                        replacement,
+                        report,
+                        flags=re.IGNORECASE,
+                    )
 
     # Check for citation consistency
     # Get all citation numbers used in the report
@@ -3351,9 +4257,7 @@ def finalize_answer(state: SummaryState, config: RunnableConfig):
 
             # Format with author and year if available (academic style)
             if author and year:
-                citations_context += (
-                    f"[{cite_num}] {author} et al. ({year}) {title}\n"
-                )
+                citations_context += f"[{cite_num}] {author} et al. ({year}) {title}\n"
             elif author:
                 citations_context += f"[{cite_num}] {author} et al. {title}\n"
             elif year:
@@ -4168,9 +5072,123 @@ def refine_query(state: SummaryState, config: RunnableConfig) -> Dict[str, Any]:
     return updated_state
 
 
+async def process_steering(
+    state: SummaryState, config: RunnableConfig
+) -> Dict[str, Any]:
+    """
+    Process steering messages using the advanced memory system and planning agent.
+    This node implements the Manus-style agent loop for adaptive research.
+    """
+    logger.info(
+        "[STEERING_NODE] Processing steering messages and adapting research plan"
+    )
+
+    start_time = datetime.now()
+
+    # Initialize memory system if not already done
+    if not state.memory_system and state.steering_enabled:
+        from src.memory_system import AdvancedMemorySystem
+
+        state.memory_system = AdvancedMemorySystem()
+        state.steering_session_id = state.memory_system.session_id
+        logger.info(
+            f"[STEERING_NODE] Initialized memory system with session ID: {state.steering_session_id}"
+        )
+
+    # If no memory system and steering not enabled, skip processing
+    if not state.memory_system:
+        logger.info(
+            "[STEERING_NODE] No memory system available, skipping steering processing"
+        )
+        return {"steering_processed": False, "reason": "Memory system not initialized"}
+
+    try:
+        # Initialize steering planning agent
+        from src.steering_agent import SteeringPlanningAgent
+
+        planning_agent = SteeringPlanningAgent(state)
+
+        # Execute the agent loop
+        loop_results = await planning_agent.execute_agent_loop()
+
+        # Update state with results
+        processing_time = (datetime.now() - start_time).total_seconds()
+
+        # Update research plan in state
+        state.current_research_plan = state.memory_system.get_todo_md()
+
+        # Log steering processing results
+        logger.info(
+            f"[STEERING_NODE] Completed steering processing in {processing_time:.2f}s"
+        )
+        logger.info(
+            f"[STEERING_NODE] Steering messages processed: {loop_results.get('steering_processed', 0)}"
+        )
+        logger.info(
+            f"[STEERING_NODE] Tools executed: {loop_results.get('tools_executed', 0)}"
+        )
+        logger.info(
+            f"[STEERING_NODE] Tools cancelled: {loop_results.get('tools_cancelled', 0)}"
+        )
+        logger.info(
+            f"[STEERING_NODE] Plan adaptations: {loop_results.get('plan_adaptations', 0)}"
+        )
+
+        return {
+            "steering_processed": True,
+            "processing_time": processing_time,
+            "loop_results": loop_results,
+            "memory_summary": state.get_memory_summary(),
+            "updated_plan": state.current_research_plan,
+        }
+
+    except Exception as e:
+        logger.error(f"[STEERING_NODE] Error processing steering: {str(e)}")
+        logger.error(f"[STEERING_NODE] Traceback: {traceback.format_exc()}")
+
+        return {
+            "steering_processed": False,
+            "error": str(e),
+            "processing_time": (datetime.now() - start_time).total_seconds(),
+        }
+
+
+# Steering routing function removed - using standard research flow
+
+
+def route_after_steering(state: SummaryState) -> str:
+    """
+    Route after steering processing to determine next action.
+    """
+    logger.info("[ROUTING] Determining next action after steering processing")
+
+    # Check if research should continue based on memory system
+    if state.memory_system:
+        # Get next tasks from memory system
+        next_tasks = state.memory_system.task_planner.get_next_tasks(max_tasks=1)
+
+        if next_tasks:
+            logger.info(
+                f"[ROUTING] Found {len(next_tasks)} pending tasks - continuing research"
+            )
+            return "multi_agents_network"
+        else:
+            logger.info("[ROUTING] No pending tasks - proceeding to report generation")
+            if state.benchmark_mode:
+                return "validate_context_sufficiency"
+            else:
+                return "generate_report"
+
+    # Default routing
+    if state.benchmark_mode:
+        return "validate_context_sufficiency"
+    else:
+        return "generate_report"
+
+
 def create_graph():
     """
-    Factory function that creates a fresh graph instance.
+    Factory function that creates a fresh graph instance with steering capabilities.
     """
     # Create a new builder
     builder = StateGraph(
@@ -4203,12 +5221,13 @@ def create_graph():
         else:
             return "generate_report"
 
+    # Add conditional routing after multi_agents_network
     builder.add_conditional_edges(
         "multi_agents_network",
-        route_after_multi_agents_decision,
+        route_after_multi_agents_decision,  # Use the standard routing function
         {
-            "validate_context_sufficiency": "validate_context_sufficiency",  # Path for QA and benchmark modes
-            "generate_report": "generate_report",  # Existing path for regular mode
+            "validate_context_sufficiency": "validate_context_sufficiency",  # Benchmark path
+            "generate_report": "generate_report",  # Regular path
         },
     )
 

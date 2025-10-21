@@ -53,19 +53,19 @@ export const setShouldAutoReconnect = (value) => {
 // Export a function to disconnect the event source without destroying history
 export const disconnectResearchEventSource = () => {
   console.log('Manually disconnecting research event source');
-  
+
   if (eventSource) {
     console.log('Closing SSE connection manually');
     eventSource.close();
     eventSource = null;
   }
-  
+
   if (staleConnectionTimer) {
     console.log('Clearing stale connection timer');
     clearInterval(staleConnectionTimer);
     staleConnectionTimer = null;
   }
-  
+
   // Reset reconnect state but don't clear history
   isReconnecting = false;
   reconnectAttempts = 0;
@@ -83,6 +83,22 @@ export const cancelResearch = () => {
 
   // Explicitly set flag to prevent auto-reconnection
   shouldAutoReconnect = false;
+
+  // Request backend to stop research execution
+  if (currentSessionId) {
+    console.log(`Requesting backend to stop research for session ${currentSessionId}`);
+    const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || '';
+    fetch(`${API_BASE_URL}/stop/${currentSessionId}`, {
+      method: 'POST',
+    })
+      .then(response => response.json())
+      .then(data => {
+        console.log('Backend stop response:', data);
+      })
+      .catch(err => {
+        console.log('Error requesting backend stop:', err);
+      });
+  }
 
   if (activeReader) {
     console.log('Canceling active reader');
@@ -126,10 +142,20 @@ export const cancelResearch = () => {
   // Clear all in-progress requests to prevent orphaned requests
   requestsInProgress.clear();
 
+  // Clear polling interval if active
+  if (pollingInterval) {
+    console.log('Clearing polling interval');
+    clearInterval(pollingInterval);
+    pollingInterval = null;
+  }
+
+  // Stop plan polling
+  stopPlanPolling();
+
   // Reset session tracking
   currentSessionId = null;
   lastResponseUrl = null;
-  
+
   // Reset research completion flag
   isResearchComplete = false;
 
@@ -144,26 +170,42 @@ export const startResearch = async (
   provider = null,
   model = null,
   uploadedFileContent = null, // Add uploadedFileContent parameter
+  databaseInfo = null, // Add databaseInfo parameter
   onEventHandler,
   onCompleteHandler,
-  onErrorHandler
+  onErrorHandler,
+  enableSteering = true // Add steering parameter
 ) => {
-  console.log('[DEBUG] startResearch called with:', { query, provider, model, uploadedFileContent });
-  
+  console.log('[DEBUG] startResearch called with:', { query, provider, model, uploadedFileContent, databaseInfo });
+
   // Store the handlers in module-level variables so connectToEventSource can access them
   onEvent = onEventHandler;
   onComplete = onCompleteHandler;
   onError = onErrorHandler;
-  
+
   console.log('[DEBUG] Stored event handlers:', { onEvent: typeof onEvent, onComplete: typeof onComplete, onError: typeof onError });
-  
+
   try {
     // Define your API base URL
     const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || '';
 
-    // Research endpoint URL
+    // FIRST: Cleanup any previous sessions to ensure fresh start
+    console.log('Cleaning up any previous sessions for fresh start...');
+    try {
+      const cleanupResponse = await fetch(`${API_BASE_URL}/cleanup-all`, {
+        method: 'POST',
+      });
+      if (cleanupResponse.ok) {
+        const cleanupData = await cleanupResponse.json();
+        console.log('✅ Cleanup complete:', cleanupData);
+      }
+    } catch (cleanupErr) {
+      console.log('⚠️ Cleanup request failed (non-fatal):', cleanupErr);
+    }
+
+    // Use the original deep-research endpoint
     const apiUrl = `${API_BASE_URL}/deep-research`;
-    console.log(`Starting research with URL: ${apiUrl}`);
+    // console.log(`Starting research with URL: ${apiUrl}, steering: ${enableSteering}`);
 
     // Log the extra effort and minimum effort settings
     console.log(`Research settings: extraEffort=${extraEffort}, minimumEffort=${minimumEffort}, benchmarkMode=${benchmarkMode}`);
@@ -208,14 +250,21 @@ export const startResearch = async (
       activeRequest = null;
     };
 
-    // Prepare the request body
+    // Prepare the request body - always use original format but add steering flag
     const requestBody = {
       query: query,
       extra_effort: extraEffort,
       minimum_effort: minimumEffort,
       benchmark_mode: benchmarkMode,
-      streaming: true
+      streaming: true,
+      steering_enabled: enableSteering  // Add steering flag
     };
+
+    // Add database_info if provided
+    if (databaseInfo && Array.isArray(databaseInfo) && databaseInfo.length > 0) {
+      console.log('[DEBUG] Adding database_info to request:', databaseInfo);
+      requestBody.database_info = databaseInfo;
+    }
 
     // Add model configuration if provided
     if (provider) {
@@ -224,7 +273,7 @@ export const startResearch = async (
     if (model) {
       requestBody.model = model;
     }
-    
+
     // Convert uploadedFileContent array to string if provided
     if (uploadedFileContent && Array.isArray(uploadedFileContent) && uploadedFileContent.length > 0) {
       console.log('[DEBUG] Converting uploaded file content array to string');
@@ -234,7 +283,7 @@ export const startResearch = async (
         }
         return '';
       }).join('\n');
-      
+
       if (combinedContent.trim()) {
         requestBody.uploaded_data_content = combinedContent;
         console.log('[DEBUG] Added uploaded_data_content to request body, length:', combinedContent.length);
@@ -263,6 +312,22 @@ export const startResearch = async (
     const data = await response.json();
     console.log('Research request response:', data);
 
+    if (enableSteering) {
+      // console.log('[STEERING] Research started with steering enabled');
+      // Extract session ID from the stream URL for steering
+      const streamUrl = data.stream_url;
+      if (streamUrl) {
+        // Stream URL format is "/stream/uuid", so extract the UUID part
+        const sessionId = streamUrl.replace('/stream/', '');
+        currentSessionId = sessionId;
+        // console.log(`[STEERING] Set current session ID: ${currentSessionId}`);
+
+        // Start plan polling for real-time updates
+        // console.log('[STEERING] Starting plan polling for real-time updates');
+        startPlanPolling();
+      }
+    }
+
     // Extract the stream URL from the response
     const streamUrl = data.stream_url;
     if (!streamUrl) {
@@ -288,7 +353,7 @@ export const startResearch = async (
  */
 const connectToEventSource = (url, cleanupRequest) => {
   console.log(`[DEBUG] connectToEventSource called with url: ${url}, onEvent handler:`, typeof onEvent);
-  
+
   // Close existing event source if any
   if (eventSource) {
     eventSource.close();
@@ -312,12 +377,12 @@ const connectToEventSource = (url, cleanupRequest) => {
   eventSource.onopen = (event) => {
     console.log(`SSE connection opened successfully! ReadyState: ${eventSource?.readyState}`, event);
     // Reset last event time on successful open
-    lastEventTime = Date.now(); 
+    lastEventTime = Date.now();
     // Reset reconnect attempts if we successfully reopen after a failure
     if (isReconnecting) {
-        console.log('Successfully reconnected to SSE stream.');
-        reconnectAttempts = 0;
-        isReconnecting = false; 
+      console.log('Successfully reconnected to SSE stream.');
+      reconnectAttempts = 0;
+      isReconnecting = false;
     }
   };
   // --- End onopen handler --- 
@@ -336,7 +401,7 @@ const connectToEventSource = (url, cleanupRequest) => {
       staleConnectionTimer = null;
       return;
     }
-    
+
     const timeSinceLastEvent = Date.now() - lastEventTime;
     if (timeSinceLastEvent > 30000) { // 30 seconds (increased from 20)
       console.log('Connection appears to be stale - no events in 30 seconds');
@@ -351,7 +416,7 @@ const connectToEventSource = (url, cleanupRequest) => {
   const processEvent = (event, eventType) => {
     // Update the last event time for all events
     lastEventTime = Date.now();
-    
+
     console.log(`[DEBUG] processEvent called with eventType: ${eventType}, event.data:`, event.data);
 
     try {
@@ -406,14 +471,16 @@ const connectToEventSource = (url, cleanupRequest) => {
 
   // Add listeners for specific event types
   const expectedEventTypes = [
-    'connected', 'node_start', 'node_end', 'tool_start', 'tool_end', 
+    'connected', 'node_start', 'node_end', 'tool_start', 'tool_end',
     'search_started', 'search_results', 'knowledge_gap', 'research_complete',
     'report_generation', 'compiling_information', 'new_sources', 'error',
     'reconnecting', 'connection_interrupted', 'custom_event', 'update',
     // Add these specific event types from the server code
     'generating_report', 'improving_report', 'final_report', 'search_sources_found',
     'token_stream', 'tool_event', 'heartbeat', 'activity_generated',
-    'code_snippet_generated' // If you decide to use a separate event
+    'code_snippet_generated', // If you decide to use a separate event
+    // Steering-related events
+    'steering_plan_updated', 'steering_message_processed', 'todo_updated'
   ];
 
   // Add listeners for all expected event types
@@ -424,34 +491,37 @@ const connectToEventSource = (url, cleanupRequest) => {
         console.log('Research complete event received through named listener - disabling auto-reconnect');
         shouldAutoReconnect = false;
         isResearchComplete = true; // <-- Set the research complete flag
-        
+
+        // Stop plan polling when research completes
+        stopPlanPolling();
+
         // Clean up this request since research is complete
         if (cleanupRequest) {
           console.log('Research complete - cleaning up request');
           cleanupRequest();
         }
-        
+
         // Properly close the connection and clear any timers
         if (eventSource) {
           console.log('Closing SSE connection after receiving research_complete');
           eventSource.close();
           eventSource = null;
         }
-        
+
         if (staleConnectionTimer) {
           console.log('Clearing stale connection timer after research_complete');
           clearInterval(staleConnectionTimer);
           staleConnectionTimer = null;
         }
-        
+
         // Reset reconnect state and shutdown all connections
         isReconnecting = false;
         reconnectAttempts = 0;
-        
+
         // Reset tracking variables
         activeRequest = null;
         currentSessionId = null;
-        
+
         // Call the complete callback
         if (onComplete) {
           onComplete();
@@ -464,7 +534,7 @@ const connectToEventSource = (url, cleanupRequest) => {
   // Add a catch-all listener for unnamed events or events with types not in our list
   eventSource.addEventListener('message', (event) => {
     console.log(`[DEBUG] Received event through 'message' listener:`, event.data);
-    
+
     try {
       if (!event.data || event.data === 'undefined') {
         console.log(`Received generic message event with empty or undefined data`);
@@ -497,7 +567,7 @@ const connectToEventSource = (url, cleanupRequest) => {
   // Keep the onmessage handler for backward compatibility and for any unnamed events
   eventSource.onmessage = (event) => {
     console.log(`[DEBUG] Received event through onmessage:`, event.data);
-    
+
     // Update the last event time
     lastEventTime = Date.now();
 
@@ -579,7 +649,7 @@ const connectToEventSource = (url, cleanupRequest) => {
       console.log('Ignoring EventSource error since research is already complete');
       return;
     }
-    
+
     console.error('EventSource error:', error); // Handle error
     console.error(`SSE error event received. ReadyState: ${eventSource?.readyState}`);
     // Log the full event object if possible, though it might be generic
@@ -587,7 +657,7 @@ const connectToEventSource = (url, cleanupRequest) => {
 
     // Check if we should attempt reconnection
     if (shouldAutoReconnect && !isResearchComplete) {
-      console.log('Auto-reconnect is enabled, will try to reconnect...'); 
+      console.log('Auto-reconnect is enabled, will try to reconnect...');
     } else {
       // If we're deliberately closing, don't attempt to reconnect
       if (eventSource) {
@@ -599,7 +669,7 @@ const connectToEventSource = (url, cleanupRequest) => {
         clearTimeout(staleConnectionTimer);
         staleConnectionTimer = null;
       }
-      
+
       // If we're not reconnecting, and this is a terminal error, clean up the request
       if (cleanupRequest) {
         console.log('Connection terminated without reconnect - cleaning up request');
@@ -614,6 +684,227 @@ const generateSessionId = () => {
   return 'research-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
 };
 
+// Polling function for interactive research updates
+let pollingInterval = null;
+const pollForUpdates = (sessionId, cleanupRequest) => {
+  // console.log(`[STEERING] Starting polling for session: ${sessionId}`);
+
+  const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || '';
+
+  pollingInterval = setInterval(async () => {
+    try {
+      // console.log(`[STEERING] Polling session status for: ${sessionId}`);
+      const response = await fetch(`${API_BASE_URL}/steering/interactive/session/${sessionId}`);
+      if (!response.ok) {
+        console.error(`[STEERING] Failed to poll session status: ${response.status}`);
+        return;
+      }
+
+      const sessionData = await response.json();
+      // console.log('[STEERING] Session status:', sessionData);
+
+      // Emit session status as events
+      if (onEvent) {
+        onEvent({
+          event_type: 'session_status',
+          data: {
+            status: sessionData.status,
+            current_plan: sessionData.current_plan,
+            todo_version: sessionData.todo_version
+          },
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // Check if research is complete
+      if (sessionData.status === 'completed' || sessionData.status === 'error') {
+        console.log('Research completed, stopping polling');
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+
+        isResearchComplete = true;
+        shouldAutoReconnect = false;
+
+        if (cleanupRequest) {
+          cleanupRequest();
+        }
+
+        if (onComplete) {
+          onComplete();
+        }
+      }
+
+    } catch (error) {
+      console.error('Error polling session status:', error);
+    }
+  }, 5000); // Poll every 5 seconds
+};
+
+// Function to send steering messages
+export const sendSteeringMessage = async (message) => {
+  if (!currentSessionId) {
+    throw new Error('No active research session');
+  }
+
+  const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || '';
+
+  try {
+    // console.log(`[STEERING] Sending message to session ${currentSessionId}: ${message}`);
+    const response = await fetch(`${API_BASE_URL}/steering/message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: currentSessionId,
+        message: message
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to send steering message: ${response.status}`);
+    }
+
+    const data = await response.json();
+    // console.log('[STEERING] Message sent successfully:', data);
+
+    // Immediately poll for plan updates after sending message
+    setTimeout(() => {
+      pollForPlanUpdates();
+    }, 1000);
+
+    return data;
+
+  } catch (error) {
+    console.error('[STEERING] Error sending steering message:', error);
+    throw error;
+  }
+};
+
+// Function to get current research plan
+export const getResearchPlan = async () => {
+  if (!currentSessionId) {
+    throw new Error('No active research session');
+  }
+
+  const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || '';
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/steering/plan/${currentSessionId}`);
+
+    if (!response.ok) {
+      throw new Error(`Failed to get research plan: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data;
+
+  } catch (error) {
+    console.error('[STEERING] Error getting research plan:', error);
+    throw error;
+  }
+};
+
+// Function to get plan status for real-time updates
+export const getPlanStatus = async () => {
+  if (!currentSessionId) {
+    return null;
+  }
+
+  const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || '';
+
+  try {
+    // console.log(`[STEERING] Fetching plan status for session: ${currentSessionId}`);
+    const response = await fetch(`${API_BASE_URL}/steering/interactive/session/${currentSessionId}`);
+
+    if (!response.ok) {
+      // console.warn(`[STEERING] Failed to fetch plan status: ${response.status}`);
+      return null; // Silently fail for status checks
+    }
+
+    const data = await response.json();
+    // console.log('[STEERING] Received plan status:', {
+    //   version: data.todo_version,
+    //   status: data.status,
+    //   planLength: data.current_plan ? data.current_plan.length : 0
+    // });
+    return data;
+
+  } catch (error) {
+    console.error('[STEERING] Error getting plan status:', error);
+    return null;
+  }
+};
+
+// Function to poll for plan updates
+let planPollingInterval = null;
+
+export const startPlanPolling = () => {
+  if (planPollingInterval) {
+    clearInterval(planPollingInterval);
+  }
+
+  planPollingInterval = setInterval(async () => {
+    try {
+      const status = await getPlanStatus();
+      if (status && status.todo_version > 0) {
+        // Emit plan update event for UI
+        window.dispatchEvent(new CustomEvent('planStatusUpdate', { detail: status }));
+      }
+    } catch (error) {
+      console.error('[STEERING] Polling error:', error);
+    }
+  }, 3000); // Poll every 3 seconds
+};
+
+export const stopPlanPolling = () => {
+  if (planPollingInterval) {
+    console.log('[STEERING] Stopping plan polling');
+    clearInterval(planPollingInterval);
+    planPollingInterval = null;
+  }
+};
+
+export const pollForPlanUpdates = async () => {
+  try {
+    const status = await getPlanStatus();
+    if (status) {
+      window.dispatchEvent(new CustomEvent('planStatusUpdate', { detail: status }));
+    }
+  } catch (error) {
+    console.error('[STEERING] Error polling for plan updates:', error);
+  }
+};
+
+// Function to get current session ID
+export const getCurrentSessionId = () => {
+  return currentSessionId;
+};
+
+// Function to get current session todo plan
+export const getCurrentTodoPlan = async () => {
+  if (!currentSessionId) {
+    return null;
+  }
+
+  const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || '';
+
+  try {
+    console.log(`[STEERING] Getting todo plan for session: ${currentSessionId}`);
+    const response = await fetch(`${API_BASE_URL}/steering/plan/${currentSessionId}`);
+    if (!response.ok) {
+      console.log(`[STEERING] Failed to get todo plan: ${response.status}`);
+      return null;
+    }
+
+    const planData = await response.json();
+    console.log('[STEERING] Got todo plan:', planData);
+    return planData.plan;
+
+  } catch (error) {
+    console.error('[STEERING] Error getting todo plan:', error);
+    return null;
+  }
+};
+
 // Helper function to handle connection loss and reconnection attempts
 const handleConnectionLoss = (cleanupFn) => {
   // Check if research is complete - if so, don't reconnect
@@ -621,13 +912,13 @@ const handleConnectionLoss = (cleanupFn) => {
     console.log('Research is already complete - will not attempt to reconnect');
     return;
   }
-  
+
   reconnectAttempts += 1;
   const attempt = reconnectAttempts;
   // Skip reconnection if canceled explicitly
   if (!shouldAutoReconnect) {
     console.log('Not reconnecting as auto-reconnect is disabled');
-    
+
     // Clean up the request if we're not reconnecting
     if (cleanupFn) {
       console.log('Not reconnecting - cleaning up request');
