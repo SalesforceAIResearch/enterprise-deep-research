@@ -15,17 +15,18 @@ We present **Enterprise Deep Research (EDR)**, a multi-agent system that integra
 - Visualization Agent for data-driven insights, and 
 - Reflection mechanism that detects knowledge gaps and updates research direction with optional human-in-the-loop steering guidance. 
 
-These components enable automated report generation, real-time streaming, and seamless enterprise deployment, as validated on internal datasets.
+> [!Note]
+> These components enable automated report generation, real-time streaming, and seamless enterprise deployment, as validated on internal datasets.
 
 
-## 🎥 Demos & Features
+## 🎥 Demos
 
 | EDR: Web Application | EDR: Slack Integration |
 |----------------|-------------------|
 | [![EDR: Web Application](https://img.youtube.com/vi/gq43g5--dJQ/0.jpg)](https://www.youtube.com/watch?v=gq43g5--dJQ) | [![EDR: Slack Integration](https://img.youtube.com/vi/8tB375P4mgQ/0.jpg)](https://www.youtube.com/watch?v=8tB375P4mgQ) |
 
-**Key Capabilities**: Multi-provider LLM support • Real-time streaming • Document analysis • Citation management • Parallel processing • Specialized benchmarking • Human-in-the-loop steering
-
+> [!Note]
+> *Key Capabilities:* Multi-provider LLM support • Real-time streaming • Document analysis • Citation management • Parallel processing • Specialized benchmarking • Human-in-the-loop steering
 ## 🚀 Quick Start
 
 **Requirements**: Python 3.11+ • Node.js 20.9.0+
