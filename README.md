@@ -1,170 +1,174 @@
-# Enterprise Deep Research
+# 🔬 Enterprise Deep Research
 
-A comprehensive AI-powered research assistant with both Python backend and React frontend components.
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![HF Dataset](https://img.shields.io/badge/🤗%20Hugging%20Face-EDR--200%20Dataset-blue)](https://huggingface.co/datasets/Salesforce/EDR-200)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![GitHub stars](https://img.shields.io/github/stars/SalesforceAIResearch/enterprise-deep-research.svg)](https://github.com/SalesforceAIResearch/enterprise-deep-research/stargazers)
 
-## ✨ Features
 
-- **Multi-Provider LLM Support**: OpenAI, Anthropic, Google, Groq, and SambaNova
-- **Advanced Web Search**: Powered by Tavily API for comprehensive research
-- **Real-time Streaming**: Live research progress updates
-- **File Analysis**: Support for PDF, TXT, and other document formats
-- **Benchmark Mode**: Optimized for evaluation with full citation processing
-- **React Frontend**: Modern, responsive user interface
-- **Concurrent Processing**: Parallel query processing for faster evaluation
+![Architecture Overview](./assets/edr_github.png)
 
-## 🛠️ Installation
+We present **Enterprise Deep Research (EDR)**, a multi-agent system that integrate: 
+- Master Planning Agent for adaptive query decomposition, 
+- Four specialized search agents (General, Academic, GitHub, LinkedIn), 
+- Extensible MCP-based tool ecosystem supporting NL2SQL, file analysis, and enterprise workflows, 
+- Visualization Agent for data-driven insights, and 
+- Reflection mechanism that detects knowledge gaps and updates research direction with optional human-in-the-loop steering guidance. 
 
-### Prerequisites
+These components enable automated report generation, real-time streaming, and seamless enterprise deployment, as validated on internal datasets.
 
-- **Python 3.11+**
-- **Node.js v20.9.0+**
-- **npm package manager**
 
-### Quick Start
+## 🎥 Demos & Features
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/SalesforceAIResearch/enterprise-deep-research.git
-   cd enterprise-deep-research
-   ```
+| Web Application | Slack Integration |
+|----------------|-------------------|
+| [![Enterprise Research Demo](https://img.youtube.com/vi/gq43g5--dJQ/maxresdefault.jpg)](https://www.youtube.com/watch?v=gq43g5--dJQ) | [![Slack Integration Demo](https://img.youtube.com/vi/8tB375P4mgQ/maxresdefault.jpg)](https://www.youtube.com/watch?v=8tB375P4mgQ) |
 
-2. **Create and activate Python virtual environment**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
+**Key Capabilities**: Multi-provider LLM support • Real-time streaming • Document analysis • Citation management • Parallel processing • Specialized benchmarking • Human-in-the-loop steering
 
-3. **Install Python dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+## 🚀 Quick Start
 
-4. **Set up environment variables**
-   ```bash
-   cp .env.sample .env
-   ```
-   
-   Edit the `.env` file with your API keys and configuration.
+**Requirements**: Python 3.11+ • Node.js 20.9.0+
 
-## ⚙️ Configuration
+### Installation & Setup
 
-### Environment Variables
+```bash
+# Clone and setup
+git clone https://github.com/SalesforceAIResearch/enterprise-deep-research.git
+cd enterprise-deep-research
 
-#### Required
-- `TAVILY_API_KEY` - Your Tavily search API key (always required)
-- **One LLM provider key** (choose based on your preferred provider):
+# Python environment
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+
+# Configure environment
+cp .env.sample .env
+# Edit .env with your API keys
+
+# Frontend setup
+cd ai-research-assistant && npm install && npm run build && cd ..
+```
+
+### Environment Configuration
+
+**Required Variables:**
+- `TAVILY_API_KEY` - Tavily search API key
+- **One LLM provider key:**
   - `OPENAI_API_KEY` - OpenAI API key
-  - `ANTHROPIC_API_KEY` - Anthropic API key
+  - `ANTHROPIC_API_KEY` - Anthropic API key  
   - `GROQ_API_KEY` - Groq API key
   - `GOOGLE_CLOUD_PROJECT` - Google Cloud project ID
   - `SAMBNOVA_API_KEY` - SambaNova API key
 
-#### Optional
-- `LLM_PROVIDER` - Default LLM provider (default: `openai`)
-- `LLM_MODEL` - Default model name (provider-specific defaults)
-- `MAX_WEB_RESEARCH_LOOPS` - Maximum research loops (default: `10`)
-- `GOOGLE_CLOUD_LOCATION` - Google Cloud location (default: `us-central1`)
+**Optional Settings:**
+- `LLM_PROVIDER` - Default provider (default: `openai`)
+- `LLM_MODEL` - Model name (provider-specific defaults)
+- `MAX_WEB_RESEARCH_LOOPS` - Max iterations (default: `10`)
 
 ### Supported Models
 
-| Provider | Environment Variable | Default Model | Available Models |
-|----------|---------------------|---------------|------------------|
-| **OpenAI** | `OPENAI_API_KEY` | `o4-mini` | `o4-mini`, `o4-mini-high`, `o3-mini`, `o3-mini-reasoning`, `gpt-4o` |
-| **Anthropic** | `ANTHROPIC_API_KEY` | `claude-sonnet-4` | `claude-sonnet-4`, `claude-sonnet-4-thinking`, `claude-3-7-sonnet`, `claude-3-7-sonnet-thinking`, `claude-3-5-sonnet` |
-| **Google** | `GOOGLE_CLOUD_PROJECT` | `gemini-2.5-pro` | `gemini-2.5-pro`, `gemini-1.5-pro-latest`, `gemini-1.5-flash-latest`, `gemini-pro` |
-| **Groq** | `GROQ_API_KEY` | `deepseek-r1-distill-llama-70b` | `deepseek-r1-distill-llama-70b`, `llama-3.3-70b-versatile`, `llama3-70b-8192` |
-| **SambaNova** | `SAMBNOVA_API_KEY` | `DeepSeek-V3-0324` | `DeepSeek-V3-0324` |
+| Provider | Default Model | Available Models |
+|----------|---------------|------------------|
+| **OpenAI** | `o4-mini` | `o4-mini`, `o4-mini-high`, `o3-mini`, `o3-mini-reasoning`, `gpt-4o` |
+| **Anthropic** | `claude-sonnet-4` | `claude-sonnet-4`, `claude-sonnet-4-thinking`, `claude-3-7-sonnet`, `claude-3-7-sonnet-thinking` |
+| **Google** | `gemini-2.5-pro` | `gemini-2.5-pro`, `gemini-1.5-pro-latest`, `gemini-1.5-flash-latest` |
+| **Groq** | `deepseek-r1-distill-llama-70b` | `deepseek-r1-distill-llama-70b`, `llama-3.3-70b-versatile`, `llama3-70b-8192` |
+| **SambaNova** | `DeepSeek-V3-0324` | `DeepSeek-V3-0324` |
 
-5. **Install and build frontend**
-   ```bash
-   cd ai-research-assistant
-   npm install && npm run build
-   cd ..
-   ```
+### Running the Application
 
-6. **Start the application**
-   
-   **Option A: Full Stack (Frontend + Backend)**
-   ```bash
-   # Terminal 1 - Backend
-   python -m uvicorn app:app --host 0.0.0.0 --port 8000
-   
-   # Terminal 2 - Frontend
-   cd ai-research-assistant && npm start
-   ```
-   
-   **Option B: Backend Only**
-   ```bash
-   python -m uvicorn app:app --host 0.0.0.0 --port 8000
-   ```
-
-7. **Access the application**
-   - Full Stack: http://localhost:3000
-   - Backend Only: http://localhost:8000
-
-
-
-## 🚀 Usage
-
-### Basic Research Query
+**Full Stack (Recommended):**
 ```bash
-python benchmarks/run_research.py "Your research question here" \
-  --provider openai \
-  --model o3-mini \
-  --max-loops 5
+# Terminal 1 - Backend
+python -m uvicorn app:app --host 0.0.0.0 --port 8000
+
+# Terminal 2 - Frontend
+cd ai-research-assistant && npm start
 ```
 
-> Navigate to http://localhost:8000 to interact with the agent
+**Backend Only:**
+```bash
+python -m uvicorn app:app --host 0.0.0.0 --port 8000
+```
 
-## 📊 Benchmarking
+**Access**: Full Stack at [http://localhost:3000](http://localhost:3000) • Backend at [http://localhost:8000](http://localhost:8000)
 
-For comprehensive benchmarking and evaluation capabilities, see our detailed [Benchmarking Guide](benchmarks/README.md).
+## 💻 Usage
 
-Supported benchmarks:
-- **DeepResearchBench** - Comprehensive research evaluation
-- **ResearchQA** - Question-answering with citations
-- **DeepConsult** - Consulting-style research tasks
+### Command Line
+```bash
+python benchmarks/run_research.py "Your research question" \
+  --provider openai --model o3-mini --max-loops 5
+```
+
+### Web Interface
+Navigate to [http://localhost:8000](http://localhost:8000) for interactive research with real-time progress tracking.
+
+## 📚 Benchmarking & Development
+
+### Supported Benchmarks
+![Benchmarking Results](./assets/benchmarks.png)
+
+- **DeepResearchBench**: Comprehensive research evaluation
+- **ResearchQA**: Question-answering with citation verification  
+- **DeepConsult**: Consulting-style analysis tasks
+
+### EDR-200 Dataset
+
+The **[EDR-200 dataset](https://huggingface.co/datasets/Salesforce/EDR-200)** contains 201 complete agentic research trajectories generated by Enterprise Deep Research—99 queries from DeepResearch Bench and 102 queries from DeepConsult. Unlike prior benchmarks that only capture final outputs, these trajectories expose the full reasoning process across search, reflection, and synthesis steps, enabling fine-grained analysis of agentic planning and decision-making dynamics.
+
+### Running Benchmarks
+```bash
+python benchmarks/run_research_concurrent.py  # Concurrent evaluation
+python benchmarks/process_deepconsult.py      # DeepConsult dataset
+bash benchmarks/run_research.sh               # Full benchmark suite
+```
+
+### Development Setup
+```bash
+# Testing
+python -m pytest tests/
+python test_agents.py
+
+# Code quality
+black src/ services/ benchmarks/
+mypy src/ services/
+flake8 src/ services/ benchmarks/
+
+# Development server
+python -m uvicorn app:app --reload --host 0.0.0.0 --port 8000
+cd ai-research-assistant && npm run dev
+```
 
 ## 📁 Project Structure
 
-```
+```text
 enterprise-deep-research/
-├── ai-research-assistant/     # React frontend application
-├── benchmarks/               # Evaluation scripts and datasets
+├── ai-research-assistant/    # React frontend
+├── benchmarks/              # Evaluation framework  
 ├── src/                     # Core research engine
-├── services/                # Backend services
-├── app.py                   # Main FastAPI application
-├── requirements.txt         # Python dependencies
-└── README.md               # This file
+│   ├── agent.py            # Master research agent
+│   ├── graph.py            # LangGraph workflows
+│   └── tools/              # Research tools & MCP integration
+├── services/               # Backend services (research, analysis, parsing)
+├── routers/                # FastAPI endpoints
+├── models/                 # Data schemas
+├── app.py                  # Main FastAPI application
+└── requirements.txt        # Dependencies
 ```
 
-## 🔧 Development
+## 📜 License & Citation
 
-### Running Tests
-```bash
-python -m pytest tests/
+Licensed under [Apache 2.0](./LICENSE.txt).
+
+```bibtex
+@software{enterprise_deep_research,
+  title={Enterprise Deep Research: AI-Powered Research Assistant Framework},
+  author={Salesforce AI Research},
+  year={2024},
+  url={https://github.com/SalesforceAIResearch/enterprise-deep-research}
+}
 ```
 
-### Code Formatting
-```bash
-black src/ services/ benchmarks/
-```
-
-### Type Checking
-```bash
-mypy src/ services/
-```
-
-## 🤝 Contributing
-
-We welcome contributions! Please see CONTRIBUTING.md
-
-## 📝 Citation
-
-Coming Soon ...
-
-## 🙏 Acknowledgments
-
-- Built with [LangGraph](https://github.com/langchain-ai/langgraph) for agent orchestration
-- Powered by [Tavily](https://tavily.com) for web search capabilities
-- Frontend built with [React](https://reactjs.org/) and [Tailwind CSS](https://tailwindcss.com/)
+**Acknowledgments**: Built on [LangGraph](https://github.com/langchain-ai/langgraph), [Tavily](https://tavily.com), [React](https://reactjs.org/), [Tailwind CSS](https://tailwindcss.com/), and [FastAPI](https://fastapi.tiangolo.com/).
