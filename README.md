@@ -1,5 +1,6 @@
-# 🔬 Enterprise Deep Research
-**Steerable Multi-Agent Deep Research for Enterprise Analytics**
+<p align="center">
+  <img src="assets/edr-logo.png" alt="EDR Logo"/>
+</p>
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![HF Dataset](https://img.shields.io/badge/🤗%20Hugging%20Face-EDR--200%20Dataset-blue)](https://huggingface.co/datasets/Salesforce/EDR-200)
@@ -7,7 +8,6 @@
 [![GitHub stars](https://img.shields.io/github/stars/SalesforceAIResearch/enterprise-deep-research.svg)](https://github.com/SalesforceAIResearch/enterprise-deep-research/stargazers)
 
 
-![Architecture Overview](./assets/edr_github.png)
 
 We present **Enterprise Deep Research (EDR)**, a multi-agent system that integrate: 
 - Master Planning Agent for adaptive query decomposition, 
@@ -19,6 +19,7 @@ We present **Enterprise Deep Research (EDR)**, a multi-agent system that integra
 > [!Note]
 > These components enable automated report generation, real-time streaming, and seamless enterprise deployment, as validated on internal datasets.
 
+![Architecture Overview](./assets/edr_github.png)
 
 ## 🎥 Demos
 
