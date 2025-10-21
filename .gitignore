@@ -39,6 +39,7 @@ coverage.xml
 .env
 .venv
 env/
+edr/
 venv/
 ENV/
 env.bak/
@@ -61,7 +62,13 @@ venv.bak/
 !assets/edr_ppl.png
 !assets/leaderboard.png
 !assets/benchmarks.png
-!assets/edr_github.png
+!ai-research-assistant/public/sfr_logo.jpeg
+uploads/
+visualizations/
+steering_sessions.json
+backend_logs*
+
+
 # LangGraph Studio
 .langgraph/
 .langgraph-studio/
