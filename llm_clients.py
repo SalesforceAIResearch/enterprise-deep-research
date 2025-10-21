@@ -21,7 +21,6 @@ from langchain_groq import ChatGroq
 from langchain_google_vertexai import ChatVertexAI
 
 
-
 # API keys for different providers
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -36,7 +35,7 @@ GOOGLE_CLOUD_LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 OPENAI_MAX_TOKENS = 30000
 
 # Anthropic token limits
-ANTHROPIC_CLAUDE_4_MAX_TOKENS = 50000    # Claude 4 Sonnet (new flagship model)
+ANTHROPIC_CLAUDE_4_MAX_TOKENS = 50000  # Claude 4 Sonnet (new flagship model)
 ANTHROPIC_CLAUDE_37_MAX_TOKENS = 30000
 ANTHROPIC_CLAUDE_35_MAX_TOKENS = 30000
 ANTHROPIC_CLAUDE_3_MAX_TOKENS = 4096
@@ -47,11 +46,11 @@ ANTHROPIC_ASYNC_MAX_TOKENS = 8192
 GOOGLE_MAX_OUTPUT_TOKENS = 30000
 
 # Get the current date in various formats for the system prompt
-CURRENT_DATE = datetime.now().strftime('%Y-%m-%d')
+CURRENT_DATE = datetime.now().strftime("%Y-%m-%d")
 CURRENT_YEAR = datetime.now().year
 CURRENT_MONTH = datetime.now().month
 CURRENT_DAY = datetime.now().day
-ONE_YEAR_AGO = datetime.now().replace(year=datetime.now().year - 1).strftime('%Y-%m-%d')
+ONE_YEAR_AGO = datetime.now().replace(year=datetime.now().year - 1).strftime("%Y-%m-%d")
 YTD_START = f"{CURRENT_YEAR}-01-01"
 
 # Define model configurations for each provider
@@ -59,9 +58,9 @@ MODEL_CONFIGS = {
     # Groq models
     "groq": {
         "available_models": [
-            'deepseek-r1-distill-llama-70b',
-            'llama-3.3-70b-versatile',
-            'llama3-70b-8192'
+            "deepseek-r1-distill-llama-70b",
+            "llama-3.3-70b-versatile",
+            "llama3-70b-8192",
         ],
         "default_model": "deepseek-r1-distill-llama-70b",
         "requires_api_key": GROQ_API_KEY,
@@ -70,10 +69,10 @@ MODEL_CONFIGS = {
     "openai": {
         "available_models": [
             "gpt-4o",
-            "o4-mini",          # Latest compact reasoning model (April 2025)
-            "o4-mini-high",     # High-performance variant for paid tier users
+            "o4-mini",  # Latest compact reasoning model (April 2025)
+            "o4-mini-high",  # High-performance variant for paid tier users
             "o3-mini",
-            "o3-mini-reasoning"  # This will use o3-mini with high reasoning effort
+            "o3-mini-reasoning",  # This will use o3-mini with high reasoning effort
         ],
         "default_model": "o4-mini",  # Latest and most cost-efficient reasoning model
         "requires_api_key": OPENAI_API_KEY,
@@ -81,11 +80,11 @@ MODEL_CONFIGS = {
     # Anthropic models
     "anthropic": {
         "available_models": [
-            "claude-sonnet-4",                  # New Claude 4 Sonnet (flagship model)
-            "claude-sonnet-4-thinking",         # Claude 4 Sonnet with extended thinking mode
-            "claude-3-7-sonnet",                # Standard mode Claude 3.7 Sonnet
-            "claude-3-7-sonnet-thinking",       # Claude 3.7 Sonnet with extended thinking mode enabled
-            "claude-3-5-sonnet"                 # Legacy Claude 3 Sonnet
+            "claude-sonnet-4",  # New Claude 4 Sonnet (flagship model)
+            "claude-sonnet-4-thinking",  # Claude 4 Sonnet with extended thinking mode
+            "claude-3-7-sonnet",  # Standard mode Claude 3.7 Sonnet
+            "claude-3-7-sonnet-thinking",  # Claude 3.7 Sonnet with extended thinking mode enabled
+            "claude-3-5-sonnet",  # Legacy Claude 3 Sonnet
         ],
         "default_model": "claude-sonnet-4",
         "requires_api_key": ANTHROPIC_API_KEY,
@@ -105,10 +104,11 @@ MODEL_CONFIGS = {
     # Google Vertex AI models
     "google": {
         "available_models": [
-            "gemini-2.5-pro",
+            # "gemini-2.5-pro-preview-03-25",
             "gemini-1.5-pro-latest",  # Recommended Pro model
             "gemini-1.5-flash-latest",  # Recommended Flash model
-            "gemini-pro",  # Older Pro model
+            "gemini-2.5-pro",  # Older Pro model
+            "gemini-2.5-flash",  # Latest Flash model for steering operations
         ],
         "default_model": "gemini-2.5-pro",
         "requires_api_key": GOOGLE_CLOUD_PROJECT,
@@ -199,7 +199,10 @@ class SimpleOpenAIClient:
         self.model_name = model_name  # Public attribute for compatibility
         self._api_key = api_key
         self._max_tokens = max_tokens
-        self._client = openai.OpenAI(api_key=api_key)
+        self._client = openai.OpenAI(api_key="dummy",
+        base_url="https://gateway.salesforceresearch.ai/openai/process/v1/",
+        default_headers={"X-Api-Key": "cbd5333186664d57f2ed8bb08d260bf7"},
+    )
 
     @traceable
     def invoke(self, messages, config=None):
@@ -259,11 +262,12 @@ class SimpleOpenAIClient:
                 messages=openai_messages,
                 **token_param,  # Use the appropriate token parameter
                 # Include metadata for LangSmith tracing if available
-                extra_headers=(
-                    {"X-LangSmith-Trace-Id": metadata.get("ls_trace_id", "")}
-                    if "ls_trace_id" in metadata
-                    else None
-                ),
+                # extra_headers=(
+                #     {"X-LangSmith-Trace-Id": metadata.get("ls_trace_id", "")}
+                #     if "ls_trace_id" in metadata
+                #     else None,
+                #     {"X-Api-Key": "cbd5333186664d57f2ed8bb08d260bf7"}
+                # )
             )
 
             # Return the response content
@@ -338,11 +342,13 @@ class ReasoningEffortOpenAIClient(SimpleOpenAIClient):
                 reasoning_effort="high",  # Add high reasoning effort parameter
                 **token_param,  # Use the appropriate token parameter
                 # Include metadata for LangSmith tracing if available
-                extra_headers=(
-                    {"X-LangSmith-Trace-Id": metadata.get("ls_trace_id", "")}
-                    if "ls_trace_id" in metadata
-                    else None
-                ),
+                # extra_headers=(
+                #     {"X-LangSmith-Trace-Id": metadata.get("ls_trace_id", "")}
+                #     if "ls_trace_id" in metadata
+                #     else None
+                # ),
+                # default_headers={"X-Api-Key": "cbd5333186664d57f2ed8bb08d260bf7"},
+                
             )
 
             # Return the response content

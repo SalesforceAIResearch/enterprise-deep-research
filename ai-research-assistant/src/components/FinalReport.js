@@ -14,10 +14,20 @@ import 'tippy.js/dist/tippy.css';
 import 'tippy.js/animations/shift-away.css';
 
 function FinalReport({ reportContent, isFocusedView }) {
+  // Function to detect if content is HTML (like database reports)
+  const isHtmlContent = (content) => {
+    if (!content) return false;
+    // Check if content contains HTML structure with inline styles (database reports)
+    return content.includes('<div style=') ||
+      content.includes('<table style=') ||
+      (content.includes('Database Analysis Results') && content.includes('<h3')) ||
+      (content.includes('Database Query Results') && content.includes('<h1'));
+  };
+
   // Function to detect if content is from benchmark mode
   const isBenchmarkContent = (content) => {
     if (!content) return false;
-    
+
     // More flexible patterns to detect benchmark content headers
     // Checks for common benchmark section headers, possibly prefixed
     const benchmarkHeaderPatterns = [
@@ -26,15 +36,15 @@ function FinalReport({ reportContent, isFocusedView }) {
       /((\*\*|#+\s*|(\d+\.\s*)?))?(Key\s*)?Evidence:/i,
       /((\*\*|#+\s*|(\d+\.\s*)?))?Sources:/i,
     ];
-    
+
     // Check if at least two or three of these characteristic headers are present
     let matchCount = 0;
     for (const pattern of benchmarkHeaderPatterns) {
-        if (pattern.test(content)) {
-            matchCount++;
-        }
+      if (pattern.test(content)) {
+        matchCount++;
+      }
     }
-    
+
     // Content is likely from benchmark mode if it has several characteristic headers
     // and is relatively short (benchmark answers are typically concise).
     const hasEnoughPatterns = matchCount >= 2;
@@ -47,112 +57,112 @@ function FinalReport({ reportContent, isFocusedView }) {
   const parseBenchmarkContent = (content) => {
     const lines = content.split('\n');
     const result = {
-        answer: '',
-        confidenceLevel: '',
-        confidence: 0.5, // Default
-        evidence: '',
-        sources: [],
-        reasoning: '',
-        limitations: '',
-        expectedAnswer: ''
+      answer: '',
+      confidenceLevel: '',
+      confidence: 0.5, // Default
+      evidence: '',
+      sources: [],
+      reasoning: '',
+      limitations: '',
+      expectedAnswer: ''
     };
     let currentSection = null;
     let sectionContent = [];
 
     const finalizeSection = () => {
-        if (currentSection && sectionContent.length > 0) {
-            const text = sectionContent.join(' ').trim();
-            if (currentSection === 'answer') result.answer = text;
-            else if (currentSection === 'confidence') {
-                result.confidenceLevel = text;
-                if (text.toUpperCase() === 'HIGH') result.confidence = 0.9;
-                else if (text.toUpperCase() === 'MEDIUM') result.confidence = 0.6;
-                else if (text.toUpperCase() === 'LOW') result.confidence = 0.3;
-                else { // Try to parse numeric confidence if present
-                    const numericMatch = text.match(/(\d+(\.\d+)?)/);
-                    if (numericMatch) result.confidence = parseFloat(numericMatch[1]);
-                }
-            }
-            else if (currentSection === 'evidence') result.evidence = text;
-            else if (currentSection === 'sources') result.sources = sectionContent.map(s => s.replace(/^(\d+\.|-|\*)\s*/, '').trim()).filter(s => s);
-            else if (currentSection === 'reasoning') result.reasoning = text;
-            else if (currentSection === 'limitations') result.limitations = text;
-            else if (currentSection === 'expectedAnswer') result.expectedAnswer = text;
+      if (currentSection && sectionContent.length > 0) {
+        const text = sectionContent.join(' ').trim();
+        if (currentSection === 'answer') result.answer = text;
+        else if (currentSection === 'confidence') {
+          result.confidenceLevel = text;
+          if (text.toUpperCase() === 'HIGH') result.confidence = 0.9;
+          else if (text.toUpperCase() === 'MEDIUM') result.confidence = 0.6;
+          else if (text.toUpperCase() === 'LOW') result.confidence = 0.3;
+          else { // Try to parse numeric confidence if present
+            const numericMatch = text.match(/(\d+(\.\d+)?)/);
+            if (numericMatch) result.confidence = parseFloat(numericMatch[1]);
+          }
         }
-        sectionContent = [];
+        else if (currentSection === 'evidence') result.evidence = text;
+        else if (currentSection === 'sources') result.sources = sectionContent.map(s => s.replace(/^(\d+\.|-|\*)\s*/, '').trim()).filter(s => s);
+        else if (currentSection === 'reasoning') result.reasoning = text;
+        else if (currentSection === 'limitations') result.limitations = text;
+        else if (currentSection === 'expectedAnswer') result.expectedAnswer = text;
+      }
+      sectionContent = [];
     };
 
     for (const line of lines) {
-        const trimmed = line.trim();
-        // Skip empty lines or lines that are just markdown separators like '---'
-        if (!trimmed || trimmed === '---') continue;
+      const trimmed = line.trim();
+      // Skip empty lines or lines that are just markdown separators like '---'
+      if (!trimmed || trimmed === '---') continue;
 
-        let newSection = null;
-        let lineValue = '';
+      let newSection = null;
+      let lineValue = '';
 
-        // Regex to match various header styles: **, #, ##, ###, 1., etc.
-        const headerRegex = /^(\*\*|#+\s*|(\d+\.\s*)?)(Direct Answer|Overall Confidence|Confidence|Key Evidence|Evidence|Sources|Reasoning|Limitations|Expected Answer):?/i;
-        const match = trimmed.match(headerRegex);
+      // Regex to match various header styles: **, #, ##, ###, 1., etc.
+      const headerRegex = /^(\*\*|#+\s*|(\d+\.\s*)?)(Direct Answer|Overall Confidence|Confidence|Key Evidence|Evidence|Sources|Reasoning|Limitations|Expected Answer):?/i;
+      const match = trimmed.match(headerRegex);
 
-        if (match) {
-            const headerText = match[3].toLowerCase(); // Get the core header text (e.g., "direct answer")
-            lineValue = trimmed.substring(match[0].length).trim(); // Get content after the header
+      if (match) {
+        const headerText = match[3].toLowerCase(); // Get the core header text (e.g., "direct answer")
+        lineValue = trimmed.substring(match[0].length).trim(); // Get content after the header
 
-            if (headerText.includes('direct answer')) newSection = 'answer';
-            else if (headerText.includes('overall confidence')) newSection = 'confidence';
-            else if (headerText.includes('confidence')) newSection = 'confidence'; // Broader match
-            else if (headerText.includes('key evidence')) newSection = 'evidence';
-            else if (headerText.includes('evidence')) newSection = 'evidence'; // Broader match
-            else if (headerText.includes('sources')) newSection = 'sources';
-            else if (headerText.includes('reasoning')) newSection = 'reasoning';
-            else if (headerText.includes('limitations')) newSection = 'limitations';
-            else if (headerText.includes('expected answer')) newSection = 'expectedAnswer';
+        if (headerText.includes('direct answer')) newSection = 'answer';
+        else if (headerText.includes('overall confidence')) newSection = 'confidence';
+        else if (headerText.includes('confidence')) newSection = 'confidence'; // Broader match
+        else if (headerText.includes('key evidence')) newSection = 'evidence';
+        else if (headerText.includes('evidence')) newSection = 'evidence'; // Broader match
+        else if (headerText.includes('sources')) newSection = 'sources';
+        else if (headerText.includes('reasoning')) newSection = 'reasoning';
+        else if (headerText.includes('limitations')) newSection = 'limitations';
+        else if (headerText.includes('expected answer')) newSection = 'expectedAnswer';
+      }
+
+      if (newSection) {
+        finalizeSection();
+        currentSection = newSection;
+        if (lineValue) sectionContent.push(lineValue);
+      } else if (currentSection) {
+        // If it's not a header, append to current section's content
+        // For 'sources', each line is a new source item
+        if (currentSection === 'sources') {
+          // Remove list markers like "1. ", "- ", "* "
+          const cleanedLine = trimmed.replace(/^(\d+\.|-|\*)\s*/, '');
+          if (cleanedLine) sectionContent.push(cleanedLine);
+        } else {
+          sectionContent.push(trimmed);
         }
-
-        if (newSection) {
-            finalizeSection();
-            currentSection = newSection;
-            if (lineValue) sectionContent.push(lineValue);
-        } else if (currentSection) {
-            // If it's not a header, append to current section's content
-            // For 'sources', each line is a new source item
-            if (currentSection === 'sources') {
-                 // Remove list markers like "1. ", "- ", "* "
-                const cleanedLine = trimmed.replace(/^(\d+\.|-|\*)\s*/, '');
-                if (cleanedLine) sectionContent.push(cleanedLine);
-            } else {
-                sectionContent.push(trimmed);
-            }
-        } else if (!result.answer && trimmed) {
-            // Fallback: if no section yet and line is not empty, assume it's part of the answer
-            // This helps catch cases where the answer starts immediately without a "Direct Answer:" header
-            currentSection = 'answer';
-            sectionContent.push(trimmed);
-        }
+      } else if (!result.answer && trimmed) {
+        // Fallback: if no section yet and line is not empty, assume it's part of the answer
+        // This helps catch cases where the answer starts immediately without a "Direct Answer:" header
+        currentSection = 'answer';
+        sectionContent.push(trimmed);
+      }
     }
     finalizeSection(); // Finalize the last section
 
     // Fallback if answer is still empty but content exists (e.g. LLM just gave the answer directly)
     if (!result.answer && content) {
-        const firstMeaningfulLine = lines.find(l => {
-            const t = l.trim();
-            return t && !t.match(/^(\*\*|#+\s*|(\d+\.\s*)?)(Direct Answer|Overall Confidence|Confidence|Key Evidence|Evidence|Sources|Reasoning|Limitations|Expected Answer):?/i); // Not empty and not a header
-        });
-        if (firstMeaningfulLine) {
-            result.answer = firstMeaningfulLine.trim();
-        } else if (lines.length > 0 && lines[0].trim()) {
-            result.answer = lines[0].trim();
-        }
+      const firstMeaningfulLine = lines.find(l => {
+        const t = l.trim();
+        return t && !t.match(/^(\*\*|#+\s*|(\d+\.\s*)?)(Direct Answer|Overall Confidence|Confidence|Key Evidence|Evidence|Sources|Reasoning|Limitations|Expected Answer):?/i); // Not empty and not a header
+      });
+      if (firstMeaningfulLine) {
+        result.answer = firstMeaningfulLine.trim();
+      } else if (lines.length > 0 && lines[0].trim()) {
+        result.answer = lines[0].trim();
+      }
     }
-    
+
     // If evidence is empty but key_evidence was parsed into it, it's fine.
     // If both are empty, and there's a reasoning field, sometimes evidence is in reasoning.
     if (!result.evidence && result.reasoning) {
-        // A simple heuristic: if reasoning contains bullet points or "Source:", it might be evidence.
-        if (result.reasoning.includes('- ') || result.reasoning.includes('* ') || /Source\s*\d*:/i.test(result.reasoning)) {
-            // This is a basic assumption; might need refinement if it causes issues.
-            // For now, we'll keep evidence separate unless explicitly told to merge.
-        }
+      // A simple heuristic: if reasoning contains bullet points or "Source:", it might be evidence.
+      if (result.reasoning.includes('- ') || result.reasoning.includes('* ') || /Source\s*\d*:/i.test(result.reasoning)) {
+        // This is a basic assumption; might need refinement if it causes issues.
+        // For now, we'll keep evidence separate unless explicitly told to merge.
+      }
     }
 
     return result;
@@ -165,20 +175,20 @@ function FinalReport({ reportContent, isFocusedView }) {
   // Extract report title from the content
   const extractReportTitle = (content) => {
     if (!content) return 'Research Report';
-    
+
     // For benchmark mode, use a specific title
     if (isBenchmark) return 'Benchmark Question Result';
-    
+
     // First, check for HTML h1 title (highest priority)
     const h1Match = content.match(/<h1>(.*?)<\/h1>/i);
     if (h1Match && h1Match[1]) {
       return h1Match[1].trim();
     }
-    
+
     // Try to find a title in the first few lines of the report
     const lines = content.split('\n').slice(0, 20); // Look in first 20 lines
     const seenTitles = new Set(); // Track seen titles to prevent duplicates
-    
+
     // Look for markdown headings first
     for (const line of lines) {
       const cleanLine = line.trim();
@@ -190,7 +200,7 @@ function FinalReport({ reportContent, isFocusedView }) {
         }
       }
     }
-    
+
     // Then look for specific title patterns
     for (const line of lines) {
       const cleanLine = line.trim();
@@ -201,7 +211,7 @@ function FinalReport({ reportContent, isFocusedView }) {
         }
       }
     }
-    
+
     // Look for title in the research topic
     const researchTopicMatch = content.match(/Research report for[:\s]+(.*?)(?:\n|$)/i);
     if (researchTopicMatch && researchTopicMatch[1]) {
@@ -211,7 +221,7 @@ function FinalReport({ reportContent, isFocusedView }) {
         return title;
       }
     }
-    
+
     return 'Research Report';
   };
   const reportContainerRef = useRef(null);
@@ -222,31 +232,31 @@ function FinalReport({ reportContent, isFocusedView }) {
   const [codeBlockStates, setCodeBlockStates] = useState({});
   const [citationCache, setCitationCache] = useState({});
   const [processCount, setProcessCount] = useState(0);
-  
+
   // Function to copy report content to clipboard
   const copyToClipboard = () => {
     // Get text content without HTML tags
     const textContent = reportContent || '';
-    
+
     // Use Clipboard API
     navigator.clipboard.writeText(textContent)
       .then(() => {
         // Show success message
         setCopySuccess(true);
-        
+
         // Process citations immediately
         processCitations();
-        
+
         // Set a single timer to hide the success message and ensure citations are processed
         const timer = setTimeout(() => {
           processCitations();
           setCopySuccess(false);
-          
+
           // Force a small state update to trigger React to re-render
           // This ensures the citations remain active
           setProcessCount(count => count + 1);
         }, 2000);
-        
+
         return () => clearTimeout(timer);
       })
       .catch(err => {
@@ -258,13 +268,13 @@ function FinalReport({ reportContent, isFocusedView }) {
   // Function to generate and download PDF of the report
   const downloadPDF = () => {
     if (!reportContainerRef.current || !reportContent) return;
-    
+
     // Set generating state
     setPdfGenerating(true);
-    
+
     // Clone the report container to modify it for PDF
     const reportClone = reportContainerRef.current.cloneNode(true);
-    
+
     // Add simplified citation styles for the PDF
     const citationStyles = document.createElement('style');
     citationStyles.textContent = `
@@ -288,7 +298,7 @@ function FinalReport({ reportContent, isFocusedView }) {
       }
     `;
     reportClone.appendChild(citationStyles);
-    
+
     // Add special PDF-specific styling to the clone
     const pdfStyle = document.createElement('style');
     pdfStyle.textContent = `
@@ -359,7 +369,7 @@ function FinalReport({ reportContent, isFocusedView }) {
       }
     `;
     reportClone.appendChild(pdfStyle);
-    
+
     // Process citations in the clone to ensure they appear in the PDF
     const citations = reportClone.querySelectorAll('.citation-number');
     citations.forEach(citation => {
@@ -368,10 +378,10 @@ function FinalReport({ reportContent, isFocusedView }) {
       if (tooltip) {
         tooltip.remove();
       }
-      
+
       // Get the citation number
       const numText = citation.innerText.trim();
-      
+
       // Create a modified citation with adjusted spacing but no background
       // Apply extensive text alignment fixes to prevent slanting
       citation.style.display = 'inline-block';
@@ -387,16 +397,16 @@ function FinalReport({ reportContent, isFocusedView }) {
       citation.style.transform = 'rotate(0deg)';
       citation.style.textOrientation = 'mixed';
       citation.style.writingMode = 'horizontal-tb';
-      
+
       // Keep text centered but remove dimensions to allow natural sizing
       citation.style.display = 'inline-flex';
       citation.style.justifyContent = 'center';
       citation.style.alignItems = 'center';
-      
+
       // Move the text up slightly
       citation.innerHTML = `<span style="display:block; padding:0; margin-top:-2px;">${numText}</span>`;
     });
-    
+
     // Find all tables and ensure they have proper widths for PDF
     const tables = reportClone.querySelectorAll('table');
     tables.forEach(table => {
@@ -408,7 +418,7 @@ function FinalReport({ reportContent, isFocusedView }) {
         cell.style.maxWidth = '100%';
       });
     });
-    
+
     // Apply additional fixes to ensure text is properly aligned
     const paragraphs = reportClone.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6');
     paragraphs.forEach(p => {
@@ -420,14 +430,14 @@ function FinalReport({ reportContent, isFocusedView }) {
       p.style.fontKerning = 'normal';
       p.style.textRendering = 'optimizeLegibility';
     });
-    
+
     // Configure PDF options with better text rendering
     const options = {
       margin: [20, 15, 20, 15], // Top, right, bottom, left (increased top/bottom margins)
       filename: 'research-report.pdf',
       image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { 
-        scale: 2, 
+      html2canvas: {
+        scale: 2,
         useCORS: true,
         letterRendering: true,
         scrollY: 0,
@@ -436,9 +446,9 @@ function FinalReport({ reportContent, isFocusedView }) {
         fontFix: true,
         removeContainer: true
       },
-      jsPDF: { 
-        unit: 'mm', 
-        format: 'a4', 
+      jsPDF: {
+        unit: 'mm',
+        format: 'a4',
         orientation: 'portrait',
         compress: true,
         precision: 16,
@@ -447,7 +457,7 @@ function FinalReport({ reportContent, isFocusedView }) {
       pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
       enableLinks: false
     };
-    
+
     // Generate and download PDF
     html2pdf()
       .from(reportClone)
@@ -457,7 +467,7 @@ function FinalReport({ reportContent, isFocusedView }) {
       .then(() => {
         // Reset generating state
         setPdfGenerating(false);
-        
+
         // Process citations to ensure they remain active
         processCitations();
         setProcessCount(count => count + 1);
@@ -501,47 +511,47 @@ function FinalReport({ reportContent, isFocusedView }) {
     const images = reportClone.querySelectorAll('img');
     images.forEach(img => {
       // Skip if image is already in a proper container
-      if (img.parentElement.tagName === 'FIGURE' || 
-          img.parentElement.classList.contains('image-container') ||
-          img.parentElement.classList.contains('chart-container') ||
-          img.parentElement.classList.contains('graph-container')) {
+      if (img.parentElement.tagName === 'FIGURE' ||
+        img.parentElement.classList.contains('image-container') ||
+        img.parentElement.classList.contains('chart-container') ||
+        img.parentElement.classList.contains('graph-container')) {
         return;
       }
-      
+
       // Check if it's a chart or graph based on image attributes or src
-      const isChart = img.src.includes('chart') || img.src.includes('graph') || 
-                     img.alt.includes('chart') || img.alt.includes('graph') ||
-                     img.width > 500;
-      
+      const isChart = img.src.includes('chart') || img.src.includes('graph') ||
+        img.alt.includes('chart') || img.alt.includes('graph') ||
+        img.width > 500;
+
       // Create a container for the image
       const container = document.createElement('div');
       container.className = isChart ? 'chart-container' : 'image-container';
-      
+
       // Replace the image with the container + image
       img.parentNode.insertBefore(container, img);
       container.appendChild(img);
-      
+
       // Ensure image has alt text
       if (!img.alt) img.alt = 'Report image';
     });
-    
+
     // Extract the report title
     const reportTitle = extractReportTitle(reportContent);
-    
+
     // Add a title at the top of the report if it doesn't already have one
     const firstHeading = reportClone.querySelector('h1');
     if (!firstHeading || !firstHeading.textContent.includes(reportTitle)) {
       const titleElement = document.createElement('h1');
       titleElement.className = 'report-title';
       titleElement.textContent = reportTitle;
-      
+
       if (reportClone.firstChild) {
         reportClone.insertBefore(titleElement, reportClone.firstChild);
       } else {
         reportClone.appendChild(titleElement);
       }
     }
-    
+
     // Get the inner HTML
     let htmlContent = reportClone.innerHTML;
 
@@ -607,11 +617,11 @@ function FinalReport({ reportContent, isFocusedView }) {
     try {
       // Basic text extraction (for simplicity, formatting is lost)
       const textContent = reportContent || '';
-      
+
       // Split content into paragraphs based on newlines
-      const paragraphs = textContent.split('\n').map(text => 
-        new Paragraph({ 
-          children: [new TextRun(text)] 
+      const paragraphs = textContent.split('\n').map(text =>
+        new Paragraph({
+          children: [new TextRun(text)]
         })
       );
 
@@ -648,7 +658,7 @@ function FinalReport({ reportContent, isFocusedView }) {
             copied: true
           }
         }));
-        
+
         // Reset after 2 seconds
         setTimeout(() => {
           setCodeBlockStates(prev => ({
@@ -703,7 +713,7 @@ function FinalReport({ reportContent, isFocusedView }) {
     // Determine the target state based on the majority of current states
     let targetState = true;
     let stateCount = { true: 0, false: 0 };
-    
+
     // Count current states to determine majority
     Object.values(codeBlockStates).forEach(state => {
       if (property === 'theme') {
@@ -714,7 +724,7 @@ function FinalReport({ reportContent, isFocusedView }) {
         stateCount[state.collapsed ? 'true' : 'false']++;
       }
     });
-    
+
     // Set target state to the opposite of the majority
     if (Object.keys(codeBlockStates).length > 0) {
       if (property === 'theme') {
@@ -723,12 +733,12 @@ function FinalReport({ reportContent, isFocusedView }) {
         targetState = stateCount.true <= stateCount.false;
       }
     }
-    
+
     // Update all code blocks
     const newStates = {};
     Object.keys(codeBlockStates).forEach(id => {
       newStates[id] = { ...codeBlockStates[id] };
-      
+
       if (property === 'theme') {
         newStates[id].darkTheme = targetState;
       } else if (property === 'wrap') {
@@ -737,7 +747,7 @@ function FinalReport({ reportContent, isFocusedView }) {
         newStates[id].collapsed = targetState;
       }
     });
-    
+
     setCodeBlockStates(newStates);
   };
 
@@ -751,21 +761,21 @@ function FinalReport({ reportContent, isFocusedView }) {
         // 1. Full citation text here
         new RegExp(`^${citationNumber}\.\s*(.+)$`, 'gm')
       ];
-      
+
       for (const pattern of patterns) {
         const matches = [...referencesSection.matchAll(pattern)];
         if (matches.length > 0) {
           return matches[0][1].trim();
         }
       }
-      
+
       return '';
     } catch (e) {
       console.error('Error extracting full citation text:', e);
       return '';
     }
   };
-  
+
   // Function to extract reference URL and description from a citation number
   const getReferenceLinkFromCitation = (citationNumber, content) => {
     try {
@@ -773,7 +783,7 @@ function FinalReport({ reportContent, isFocusedView }) {
 
       // Cache the original content for extracting references
       const contentToSearch = content || '';
-      
+
       // Try a variety of reference section patterns
       const referencesSectionPatterns = [
         // Standard "References" section 
@@ -787,7 +797,7 @@ function FinalReport({ reportContent, isFocusedView }) {
         // References as numbered list
         /((?:\d+\.\s+.*?(?:\n|$))+)/
       ];
-      
+
       let referencesSection = '';
       for (const pattern of referencesSectionPatterns) {
         const matches = contentToSearch.match(pattern);
@@ -796,12 +806,12 @@ function FinalReport({ reportContent, isFocusedView }) {
           break;
         }
       }
-      
+
       // If we found a references section, search it for the citation
       if (referencesSection) {
         // Log the references section to debug
         console.log('Found references section:', referencesSection.substring(0, 200) + '...');
-        
+
         // Try different citation patterns to handle various formats
         const patterns = [
           // [1] Title : URL
@@ -819,12 +829,12 @@ function FinalReport({ reportContent, isFocusedView }) {
           // Number. URL format
           new RegExp(`^${citationNumber}\.\s*(https?://\\S+)`, 'im')
         ];
-        
+
         for (const pattern of patterns) {
           const citationMatch = referencesSection.match(pattern);
           if (citationMatch) {
             console.log(`Found match with pattern:`, pattern, citationMatch);
-            
+
             // If the first capture group is a URL and the second is text (3rd pattern)
             if (citationMatch[1] && citationMatch[1].match(/^https?:\/\//i) && citationMatch[2]) {
               return {
@@ -848,7 +858,7 @@ function FinalReport({ reportContent, isFocusedView }) {
             }
           }
         }
-        
+
         // Look for a line that contains the citation
         const linePatterns = [
           // [1] Some text...
@@ -856,7 +866,7 @@ function FinalReport({ reportContent, isFocusedView }) {
           // 1. Some text...
           new RegExp(`^\\s*${citationNumber}\.\\s*(.+)$`, 'gm')
         ];
-        
+
         for (const linePattern of linePatterns) {
           const lineMatches = [...referencesSection.matchAll(linePattern)];
           if (lineMatches.length > 0) {
@@ -870,10 +880,10 @@ function FinalReport({ reportContent, isFocusedView }) {
               // Clean up the title by removing trailing punctuation and "URL" text
               title = title.replace(/(?::|\.|,)\s*$/, '').trim();
               title = title.replace(/\s*URL\s*$/i, '').trim();
-              
+
               // Try to extract the full description/citation text from the references section
               const fullDescription = extractFullCitationText(citationNumber, referencesSection);
-              
+
               return {
                 url: urlMatch[1],
                 title: title,
@@ -883,10 +893,10 @@ function FinalReport({ reportContent, isFocusedView }) {
           }
         }
       }
-      
+
       // Search the entire document for any explicit mention of the citation with a URL
       console.log(`Searching entire document for citation ${citationNumber}`);
-      
+
       // Look for citation followed by URL on the same line
       const citationUrlPattern = new RegExp(`\\[${citationNumber}\\][^\n]*?(https?:\/\/[^\s)\]"']+)`, 'i');
       const citationUrlMatch = contentToSearch.match(citationUrlPattern);
@@ -897,11 +907,11 @@ function FinalReport({ reportContent, isFocusedView }) {
           title: `Citation ${citationNumber}`
         };
       }
-      
+
       // Find paragraphs mentioning the citation
       const citationMentionPattern = new RegExp(`\\[${citationNumber}\\]`, 'g');
       const paragraphs = contentToSearch.split(/\n\s*\n/);
-      
+
       for (const paragraph of paragraphs) {
         if (paragraph.match(citationMentionPattern)) {
           // Extract any URLs in the paragraph
@@ -915,7 +925,7 @@ function FinalReport({ reportContent, isFocusedView }) {
           }
         }
       }
-      
+
       // Look for URLs anywhere in the document as a last resort
       const allUrls = contentToSearch.match(/(https?:\/\/[^\s)\]"']+)/ig);
       if (allUrls && allUrls.length > parseInt(citationNumber) - 1) {
@@ -934,7 +944,7 @@ function FinalReport({ reportContent, isFocusedView }) {
           title: `Citation ${citationNumber}`
         };
       }
-      
+
       // Generic fallback
       console.log(`No URL found for citation ${citationNumber}`);
       return {
@@ -958,98 +968,98 @@ function FinalReport({ reportContent, isFocusedView }) {
     if (citationCache[citationNumber]) {
       return citationCache[citationNumber];
     }
-    
+
     // Otherwise, extract the reference and cache it
     const reference = getReferenceLinkFromCitation(citationNumber, content);
     setCitationCache(prev => ({
       ...prev,
       [citationNumber]: reference
     }));
-    
+
     return reference;
   };
 
   // Post-processing function to add citation functionality
   const processCitations = () => {
     if (!reportContainerRef.current) return;
-    
+
     // Get all paragraph elements, excluding code blocks
     const paragraphs = reportContainerRef.current.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, td, th');
-    
+
     paragraphs.forEach(paragraph => {
       // Skip processing if in References section or inside a code block
       if (paragraph.closest('.references-section') || paragraph.closest('pre') || paragraph.closest('code')) return;
-      
+
       // Get the text content
       const html = paragraph.innerHTML;
-      
+
       // Preprocess the HTML to handle standalone citation numbers next to bracketed citations
       // This catches patterns like "[1] 2" where both 1 and 2 are citations
       let processedHtml = html.replace(/(\[\d+\])(\s+)(\d+)(\s|\.|<|$)/g, (match, bracketCitation, space, plainNum, end) => {
         // Only process if it looks like a citation number (not a year or large number)
         const n = parseInt(plainNum, 10);
         if ((n >= 1900 && n <= 2100) || n > 200) return match;
-        
+
         // Wrap the plain number in brackets to make it a proper citation
         return `${bracketCitation}${space}[${plainNum}]${end}`;
       });
-      
+
       // Replace citation patterns with interactive elements WITHOUT adding extra spaces
       // This improved pattern handles citations at the end of text nodes with potential spaces
       const newHtml = processedHtml.replace(/\[(\d+(?:[,\s]+\d+)*)\](\s*\.|\.?\s*$|\s*<)/g, (match, citationNumbers, endPart) => {
         // Use a single citation number (no splitting needed)
         const numbers = [citationNumbers];
-        
+
         // Filter out years and large numbers
         const validNumbers = numbers.filter(num => {
           const n = parseInt(num, 10);
           return !(n >= 1900 && n <= 2100) && n <= 200;
         });
-        
+
         if (validNumbers.length === 0) return match;
-        
+
         // Create inline citations with no extra spaces between them
         return validNumbers.map(num => {
           const reference = getCachedReferenceLink(num, reportContent);
           const hasUrl = reference?.url && reference.url !== '#';
-          
+
           return `<span class="citation-number ${hasUrl ? 'has-url' : 'no-url'}" data-citation="${num}" data-title="${reference?.title || `Citation ${num}`}" data-url="${hasUrl ? reference.url : ''}">${num}</span>`;
         }).join('') + (endPart || '');
       });
-      
+
       // Process any remaining citations in brackets anywhere in the text
       let finalHtml = newHtml.replace(/\[(\d+)\]/g, (match, citationNumber) => {
         // Handle individual citation numbers
         const num = citationNumber.trim();
-        
+
         // Filter out years and large numbers
         const n = parseInt(num, 10);
         if ((n >= 1900 && n <= 2100) || n > 200) return match;
-        
+
         // Create inline citation
         const reference = getCachedReferenceLink(num, reportContent);
         const hasUrl = reference?.url && reference.url !== '#';
-        
+
         // Process the title to remove URL suffix if present
         let title = reference?.title || `Citation ${num}`;
         title = title.replace(/\s*URL\s*$/i, '').trim();
-        
+
         return `<span class="citation-number ${hasUrl ? 'has-url' : 'no-url'}" data-citation="${num}" data-title="${title}" data-description="${reference?.description || ''}" data-url="${hasUrl ? reference.url : ''}">${num}</span>`;
       });
-      
+
       // Only update if changes were made
       if (finalHtml !== html) {
         paragraph.innerHTML = finalHtml;
       }
     });
-    
+
     // Add event listeners to citation numbers
     const citations = reportContainerRef.current.querySelectorAll('.citation-number');
     citations.forEach(citation => {
       // Remove any existing event listeners
       const clone = citation.cloneNode(true);
       citation.parentNode.replaceChild(clone, citation);
-      
+
       // Add new event listener
       clone.addEventListener('click', (e) => {
         const url = clone.getAttribute('data-url');
@@ -1058,11 +1068,11 @@ function FinalReport({ reportContent, isFocusedView }) {
         }
         e.stopPropagation();
       });
-      
+
       // Add tooltip
       const tooltip = document.createElement('div');
       tooltip.className = 'citation-tooltip';
-      
+
       // Extract domain from URL
       let domain = '';
       const url = clone.getAttribute('data-url');
@@ -1075,21 +1085,21 @@ function FinalReport({ reportContent, isFocusedView }) {
           domain = url;
         }
       }
-      
+
       // Clean up the citation title before displaying it
       let citationTitle = clone.getAttribute('data-title') || '';
-      
+
       // Remove common title suffixes like "URL" or ":"
       citationTitle = citationTitle.replace(/\s*URL\s*$/i, '').trim();
       citationTitle = citationTitle.replace(/\s*:\s*$/i, '').trim();
-      
+
       // If the title is just "Citation X", try to extract a better title from the URL
       if (/^Citation\s+\d+$/i.test(citationTitle) && url && url !== '#') {
         try {
           // Try to extract meaningful title from URL path
           const urlObj = new URL(url);
           const pathSegments = urlObj.pathname.split('/').filter(s => s.length > 0);
-          
+
           // Get the last meaningful path segment
           if (pathSegments.length > 0) {
             const lastSegment = pathSegments[pathSegments.length - 1];
@@ -1100,12 +1110,12 @@ function FinalReport({ reportContent, isFocusedView }) {
               .split(' ')
               .map(word => word.length > 0 ? word[0].toUpperCase() + word.substring(1) : '')
               .join(' ');
-              
+
             if (formattedTitle.length > 5) {
               citationTitle = formattedTitle;
             }
           }
-          
+
           // If still generic, use domain name as fallback for title
           if (/^Citation\s+\d+$/i.test(citationTitle)) {
             citationTitle = `Article from ${domain}`;
@@ -1114,14 +1124,14 @@ function FinalReport({ reportContent, isFocusedView }) {
           console.log('Error parsing URL for title extraction:', e);
         }
       }
-      
+
       // Get the citation description if available
       const description = clone.getAttribute('data-description') || '';
-      
+
       tooltip.innerHTML = `
         <div class="citation-tooltip-header">
-          ${url && url !== '#' ? 
-            `<div class="citation-tooltip-icon">
+          ${url && url !== '#' ?
+          `<div class="citation-tooltip-icon">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
                 <path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8zm7.5-6.923c-.67.204-1.335.82-1.887 1.855A7.97 7.97 0 0 0 5.145 4H7.5V1.077zM4.09 4a9.267 9.267 0 0 1 .64-1.539 6.7 6.7 0 0 1 .597-.933A7.025 7.025 0 0 0 2.255 4H4.09zm-.582 3.5c.03-.877.138-1.718.312-2.5H1.674a6.958 6.958 0 0 0-.656 2.5h2.49zM4.847 5a12.5 12.5 0 0 0-.338 2.5H7.5V5H4.847zM8.5 5v2.5h2.99a12.495 12.495 0 0 0-.337-2.5H8.5zM4.51 8.5a12.5 12.5 0 0 0 .337 2.5H7.5V8.5H4.51zm3.99 0V11h2.653c.187-.765.306-1.608.338-2.5H8.5zM5.145 12c.138.386.295.744.468 1.068.552 1.035 1.218 1.65 1.887 1.855V12H5.145zm.182 2.472a6.696 6.696 0 0 1-.597-.933A9.268 9.268 0 0 1 4.09 12H2.255a7.024 7.024 0 0 0 3.072 2.472zM3.82 11a13.652 13.652 0 0 1-.312-2.5h-2.49c.062.89.291 1.733.656 2.5H3.82zm6.853 3.472A7.024 7.024 0 0 0 13.745 12H11.91a9.27 9.27 0 0 1-.64 1.539 6.688 6.688 0 0 1-.597.933zM8.5 12v2.923c.67-.204 1.335-.82 1.887-1.855.173-.324.33-.682.468-1.068H8.5zm3.68-1h2.146c.365-.767.594-1.61.656-2.5h-2.49a13.65 13.65 0 0 1-.312 2.5zm2.802-3.5a6.959 6.959 0 0 0-.656-2.5H12.18c.174.782.282 1.623.312 2.5h2.49zM11.27 2.461c.247.464.462.98.64 1.539h1.835a7.024 7.024 0 0 0-3.072-2.472c.218.284.418.598.597.933zM10.855 4a7.966 7.966 0 0 0-.468-1.068C9.835 1.897 9.17 1.282 8.5 1.077V4h2.355z"/>
               </svg>
@@ -1130,14 +1140,14 @@ function FinalReport({ reportContent, isFocusedView }) {
         </div>
         <div class="citation-tooltip-title">${citationTitle}</div>
         ${description ? `<div class="citation-tooltip-description">${description}</div>` : ''}
-        ${url && url !== '#' ? 
-          `<div class="citation-tooltip-url">${url}</div>` : 
+        ${url && url !== '#' ?
+          `<div class="citation-tooltip-url">${url}</div>` :
           '<div class="citation-tooltip-hint">No URL available</div>'}
       `;
       clone.appendChild(tooltip);
     });
   };
-  
+
   // Apply citation processing after render
   useEffect(() => {
     // Initialize citation cache on first load
@@ -1147,10 +1157,10 @@ function FinalReport({ reportContent, isFocusedView }) {
         getCachedReferenceLink(i.toString(), reportContent);
       }
     }
-    
+
     // Reset process count when content changes
     setProcessCount(0);
-    
+
     // Initial processing
     const timer1 = setTimeout(() => {
       if (reportContainerRef.current) {
@@ -1158,13 +1168,13 @@ function FinalReport({ reportContent, isFocusedView }) {
         setProcessCount(prev => prev + 1);
       }
     }, 100);
-    
+
     // Cleanup function
     return () => {
       clearTimeout(timer1);
     };
   }, [reportContent, codeBlockStates]); // Dependencies don't include isFocusedView to avoid reprocessing
-  
+
   // Separate effect for fullscreen toggle
   useEffect(() => {
     // Only run if reportContent exists and not on first render
@@ -1174,11 +1184,11 @@ function FinalReport({ reportContent, isFocusedView }) {
           processCitations();
         }
       }, 100);
-      
+
       return () => clearTimeout(timer);
     }
   }, [isFocusedView, processCount]);
-  
+
   // Add styles
   useEffect(() => {
     // Add the required CSS
@@ -1616,7 +1626,7 @@ function FinalReport({ reportContent, isFocusedView }) {
       }
     `;
     document.head.appendChild(style);
-    
+
     // Clean up
     return () => {
       document.head.removeChild(style);
@@ -1638,15 +1648,15 @@ function FinalReport({ reportContent, isFocusedView }) {
 
   // Extract the report title for UI display
   const reportTitle = extractReportTitle(reportContent);
-  
+
   // Track if we've rendered the title
   const [titleRendered, setTitleRendered] = useState(false);
-  
+
   // Reset titleRendered when report content changes
   useEffect(() => {
     setTitleRendered(false);
   }, [reportContent]);
-  
+
   // Extract the research topic from the URL if available
   const getResearchTopicFromUI = () => {
     try {
@@ -1655,7 +1665,7 @@ function FinalReport({ reportContent, isFocusedView }) {
       if (headerElement) {
         return headerElement.textContent.trim();
       }
-      
+
       // Alternative: try to get it from the URL or page title
       if (typeof window !== 'undefined') {
         const urlParams = new URLSearchParams(window.location.search);
@@ -1664,14 +1674,14 @@ function FinalReport({ reportContent, isFocusedView }) {
           return topic;
         }
       }
-      
+
       return null;
     } catch (e) {
       console.error('Error getting research topic from UI:', e);
       return null;
     }
   };
-  
+
   // Use the extracted title or fall back to the research topic from UI
   const displayTitle = reportTitle !== 'Research Report' ? reportTitle : getResearchTopicFromUI();
 
@@ -1680,10 +1690,10 @@ function FinalReport({ reportContent, isFocusedView }) {
     try {
       // Process the content to format dates and table of contents
       let processedContent = reportContent;
-      
+
       // Format dates (e.g., "May 10, 2025")
       processedContent = processedContent.replace(/([A-Z][a-z]+ \d{1,2}, \d{4})/g, '<div class="report-date">$1</div>');
-      
+
       // Convert bullet points with asterisks to list items
       processedContent = processedContent.replace(/^\s*\*\s+([^\n]+)/gm, (match, content) => {
         // Check if it's a section header (contains a colon)
@@ -1694,15 +1704,15 @@ function FinalReport({ reportContent, isFocusedView }) {
         // Regular bullet point
         return `<div class="bullet-point">${content}</div>`;
       });
-      
+
       // Convert markdown headers (###) to proper HTML headers
       processedContent = processedContent.replace(/###\s+([^#\n]+)/g, '<h3>$1</h3>');
       processedContent = processedContent.replace(/##\s+([^#\n]+)/g, '<h2>$1</h2>');
       processedContent = processedContent.replace(/#\s+([^#\n]+)/g, '<h1>$1</h1>');
-      
+
       // Convert bold markdown (**text**) to HTML bold
       processedContent = processedContent.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      
+
       // Convert tables with markdown-style separators
       processedContent = processedContent.replace(
         /\|\s*([^|\n]+)\s*\|\s*([^|\n]+)\s*\|\s*\n\|\s*[-\s|]+\|\s*[-\s|]+\|\s*\n((?:\|\s*[^|\n]+\s*\|\s*[^|\n]+\s*\|\s*\n)+)/g,
@@ -1719,7 +1729,7 @@ function FinalReport({ reportContent, isFocusedView }) {
           return `<table class="report-table">${headerRow}${bodyRows}</table>`;
         }
       );
-      
+
       // Format table of contents
       processedContent = processedContent.replace(
         /(Table of Contents\n)((?:[-\s]*[0-9.]*\s+[^\n]+\n)+)/g,
@@ -1734,7 +1744,7 @@ function FinalReport({ reportContent, isFocusedView }) {
               return `<div class="toc-item" style="padding-left: ${indent * 8}px">${cleanItem}</div>`;
             })
             .join('\n');
-          
+
           return `<div class="table-of-contents">
             <h2>${header.trim()}</h2>
             <div class="toc-items">
@@ -1926,7 +1936,7 @@ function FinalReport({ reportContent, isFocusedView }) {
   };
 
   return (
-    <div className="h-full" ref={reportContainerRef}>
+    <div className="min-h-full" ref={reportContainerRef}>
       {/* Report Actions toolbar */}
       <div className="sticky top-0 bg-white z-10 border-b border-gray-200 flex items-center justify-end py-2 px-4 gap-2">
         <div className="report-toolbar-wrapper flex items-center space-x-2">
@@ -1941,7 +1951,7 @@ function FinalReport({ reportContent, isFocusedView }) {
               </svg>
             </button>
           </Tippy>
-          
+
           <Tippy content="Download as HTML" {...tippyProps}>
             <button
               onClick={downloadHtml}
@@ -1953,7 +1963,7 @@ function FinalReport({ reportContent, isFocusedView }) {
               </svg>
             </button>
           </Tippy>
-          
+
           <Tippy content="Download as PDF" {...tippyProps}>
             <button
               onClick={downloadPDF}
@@ -1966,7 +1976,7 @@ function FinalReport({ reportContent, isFocusedView }) {
               </svg>
             </button>
           </Tippy>
-          
+
           <Tippy content="Download as DOCX" {...tippyProps}>
             <button
               onClick={downloadDocx}
@@ -1981,9 +1991,9 @@ function FinalReport({ reportContent, isFocusedView }) {
           </Tippy>
         </div>
       </div>
-      
+
       {/* Report Content */}
-      <div className="py-6 px-8">
+      <div className="pt-6 pb-12 px-8">
         {isBenchmark && benchmarkData ? (
           // Render benchmark result using the enhanced card component
           <BenchmarkResultCard
@@ -1998,6 +2008,13 @@ function FinalReport({ reportContent, isFocusedView }) {
             reasoning={benchmarkData.reasoning}
             limitations={benchmarkData.limitations}
           />
+        ) : isHtmlContent(reportContent) ? (
+          // Render pure HTML content (like database reports) directly
+          <div
+            className="database-report-container"
+            style={{ maxWidth: '100%', overflowX: 'auto' }}
+            dangerouslySetInnerHTML={{ __html: reportContent }}
+          />
         ) : (
           // Render regular markdown content for non-benchmark reports
           <>
@@ -2005,21 +2022,21 @@ function FinalReport({ reportContent, isFocusedView }) {
             {displayTitle && !titleRendered && (
               <h1 className="text-3xl font-bold mb-6 pb-2 border-b border-gray-200">{displayTitle}</h1>
             )}
-            
-            <ReactMarkdown 
+
+            <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               rehypePlugins={[
-                [rehypeRaw, {allowDangerousHtml: true}] 
+                [rehypeRaw, { allowDangerousHtml: true }]
               ]}
               urlTransform={uri => {
                 if (uri.startsWith('data:')) {
                   return uri; // Allow data URIs
                 }
-                return defaultUrlTransform(uri); 
+                return defaultUrlTransform(uri);
               }}
               components={{
                 // Customize heading styles with lighter font weights and consistent sizes
-                h1: ({node, children, ...props}) => {
+                h1: ({ node, children, ...props }) => {
                   const titleText = children.toString();
                   // Skip if we've already rendered the title or if it matches displayTitle
                   if (titleRendered || (displayTitle && titleText === displayTitle)) {
@@ -2032,51 +2049,51 @@ function FinalReport({ reportContent, isFocusedView }) {
                   }
                   return <h1 className="text-2xl font-semibold mb-4 pb-2 border-b border-gray-200" {...props}>{children}</h1>;
                 },
-                h2: ({node, children, ...props}) => <h2 className="text-xl font-semibold mt-6 mb-3" {...props}>{children}</h2>,
-                h3: ({node, children, ...props}) => <h3 className="text-lg font-medium mt-5 mb-2" {...props}>{children}</h3>,
-                h4: ({node, children, ...props}) => <h4 className="text-base font-medium mt-4 mb-2" {...props}>{children}</h4>,
-                
+                h2: ({ node, children, ...props }) => <h2 className="text-xl font-semibold mt-6 mb-3" {...props}>{children}</h2>,
+                h3: ({ node, children, ...props }) => <h3 className="text-lg font-medium mt-5 mb-2" {...props}>{children}</h3>,
+                h4: ({ node, children, ...props }) => <h4 className="text-base font-medium mt-4 mb-2" {...props}>{children}</h4>,
+
                 // Customize list styles
-                ul: ({node, children, ...props}) => <ul className="list-disc pl-5 my-3 space-y-1" {...props}>{children}</ul>,
-                ol: ({node, children, ...props}) => <ol className="list-decimal pl-5 my-3 space-y-1" {...props}>{children}</ol>,
-                li: ({node, children, ...props}) => {
+                ul: ({ node, children, ...props }) => <ul className="list-disc pl-5 my-3 space-y-1" {...props}>{children}</ul>,
+                ol: ({ node, children, ...props }) => <ol className="list-decimal pl-5 my-3 space-y-1" {...props}>{children}</ol>,
+                li: ({ node, children, ...props }) => {
                   // Check if this is a task list item
-                  const isTaskItem = 
-                    typeof children[0] === 'object' && 
-                    children[0]?.type === 'input' && 
+                  const isTaskItem =
+                    typeof children[0] === 'object' &&
+                    children[0]?.type === 'input' &&
                     children[0]?.props?.type === 'checkbox';
-                  
+
                   return (
                     <li className={`my-1 ${isTaskItem ? 'flex items-start' : ''}`} {...props}>
                       {children}
                     </li>
                   );
                 },
-                
+
                 // Customize paragraph styles
-                p: ({node, children, ...props}) => <p className="my-2 leading-relaxed text-gray-800" {...props}>{children}</p>,
-                
+                p: ({ node, children, ...props }) => <p className="my-2 leading-relaxed text-gray-800" {...props}>{children}</p>,
+
                 // Customize link styles
-                a: ({node, children, ...props}) => <a className="text-blue-600 hover:underline" {...props}>{children}</a>,
-                
+                a: ({ node, children, ...props }) => <a className="text-blue-600 hover:underline" {...props}>{children}</a>,
+
                 // Style tables properly
-                table: ({node, children, ...props}) => <table className="border-collapse table-auto w-full my-4 border border-gray-300" {...props}>{children}</table>,
-                thead: ({node, children, ...props}) => <thead className="bg-gray-100" {...props}>{children}</thead>,
-                tbody: ({node, children, ...props}) => <tbody {...props}>{children}</tbody>,
-                tr: ({node, children, ...props}) => <tr className="border-b border-gray-200" {...props}>{children}</tr>,
-                th: ({node, children, ...props}) => <th className="p-2 text-left font-medium border border-gray-300" {...props}>{children}</th>,
-                td: ({node, children, ...props}) => <td className="p-2 border border-gray-300" {...props}>{children}</td>,
-                
+                table: ({ node, children, ...props }) => <table className="border-collapse table-auto w-full my-4 border border-gray-300" {...props}>{children}</table>,
+                thead: ({ node, children, ...props }) => <thead className="bg-gray-100" {...props}>{children}</thead>,
+                tbody: ({ node, children, ...props }) => <tbody {...props}>{children}</tbody>,
+                tr: ({ node, children, ...props }) => <tr className="border-b border-gray-200" {...props}>{children}</tr>,
+                th: ({ node, children, ...props }) => <th className="p-2 text-left font-medium border border-gray-300" {...props}>{children}</th>,
+                td: ({ node, children, ...props }) => <td className="p-2 border border-gray-300" {...props}>{children}</td>,
+
                 // Unwrap <pre> so custom code override handles block code
-                pre: ({node, children, ...props}) => <>{children}</>,
-                
+                pre: ({ node, children, ...props }) => <>{children}</>,
+
                 // Style code blocks with syntax highlighting
                 code: ({ node, className, children, ...props }) => {
                   const match = /language-(\w+)/.exec(className || '');
                   const language = match ? match[1] : '';
                   const codeBlockIndex = node?.position?.start?.offset || Math.random();
                   const codeId = getCodeBlockId(codeBlockIndex, language);
-                  
+
                   // Get current state for this code block
                   const codeState = codeBlockStates[codeId] || {
                     collapsed: false,
@@ -2084,9 +2101,9 @@ function FinalReport({ reportContent, isFocusedView }) {
                     wrap: false,
                     darkTheme: true
                   };
-                  
+
                   const code = String(children).replace(/\n$/, '');
-                  
+
                   // Initialize state for this code block if it doesn't exist
                   if (!codeBlockStates[codeId]) {
                     setCodeBlockStates(prev => ({
@@ -2094,7 +2111,7 @@ function FinalReport({ reportContent, isFocusedView }) {
                       [codeId]: codeState
                     }));
                   }
-                  
+
                   // Render fenced code blocks when language class is present
                   if (match) {
                     return (
@@ -2105,34 +2122,34 @@ function FinalReport({ reportContent, isFocusedView }) {
                           </div>
                           <div className="code-block-toolbar-right">
                             <Tippy content={codeState.collapsed ? "Expand code" : "Collapse code"} {...tippyProps}>
-                              <button 
+                              <button
                                 className={`code-block-button ${codeState.collapsed ? 'active' : ''}`}
                                 onClick={() => toggleCollapse(codeId)}
                               >
                                 {codeState.collapsed ? "Expand" : "Collapse"}
                               </button>
                             </Tippy>
-                            
+
                             <Tippy content={codeState.wrap ? "Disable text wrapping" : "Enable text wrapping"} {...tippyProps}>
-                              <button 
+                              <button
                                 className={`code-block-button ${codeState.wrap ? 'active' : ''}`}
                                 onClick={() => toggleWrap(codeId)}
                               >
                                 {codeState.wrap ? "Unwrap" : "Wrap"}
                               </button>
                             </Tippy>
-                            
+
                             <Tippy content={codeState.darkTheme ? "Switch to light theme" : "Switch to dark theme"} {...tippyProps}>
-                              <button 
+                              <button
                                 className={`code-block-button ${codeState.darkTheme ? '' : 'active'}`}
                                 onClick={() => toggleTheme(codeId)}
                               >
                                 {codeState.darkTheme ? "Light" : "Dark"}
                               </button>
                             </Tippy>
-                            
+
                             <Tippy content={codeState.copied ? "Copied!" : "Copy code"} {...tippyProps}>
-                              <button 
+                              <button
                                 className={`code-block-button ${codeState.copied ? 'success' : ''}`}
                                 onClick={() => copyCodeBlock(code, codeId)}
                               >
@@ -2141,7 +2158,7 @@ function FinalReport({ reportContent, isFocusedView }) {
                             </Tippy>
                           </div>
                         </div>
-                        
+
                         <div className={`code-block-content ${codeState.collapsed ? 'collapsed' : ''} ${codeState.wrap ? 'wrap' : ''}`}>
                           <SyntaxHighlighter
                             style={codeState.darkTheme ? tomorrow : vs}
@@ -2164,14 +2181,14 @@ function FinalReport({ reportContent, isFocusedView }) {
                       </div>
                     );
                   }
-                  
+
                   return (
                     <code className="inline-block px-2 py-1 bg-gray-100 border border-gray-300 rounded shadow-sm font-mono text-sm text-gray-800" {...props}>
                       {children}
                     </code>
                   );
                 },
-                img: ({node, ...props}) => <img {...props} /> 
+                img: ({ node, ...props }) => <img {...props} />
               }}
             >
               {reportContent || ''}
@@ -2179,15 +2196,15 @@ function FinalReport({ reportContent, isFocusedView }) {
           </>
         )}
       </div>
-      
+
       {/* Full-screen loading overlay for PDF generation */}
       {pdfGenerating && (
         <div className="pdf-loading-overlay">
-          <LoadingIndicator 
-            type="spinner" 
-            size="large" 
-            color="#1a5fb4" 
-            text="Generating PDF..." 
+          <LoadingIndicator
+            type="spinner"
+            size="large"
+            color="#1a5fb4"
+            text="Generating PDF..."
           />
         </div>
       )}

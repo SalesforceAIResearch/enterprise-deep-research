@@ -15,6 +15,7 @@ from src.tools.search_tools import (
     GithubSearchTool,
     LinkedinSearchTool
 )
+from src.tools.text2sql_tool import Text2SQLTool
 
 logger = logging.getLogger(__name__)
 
@@ -57,12 +58,17 @@ class SearchToolRegistry:
             linkedin_search.config = self.config
             logger.info(f"[SearchToolRegistry._register_default_tools] Created LinkedinSearchTool instance")
             
+            text2sql = Text2SQLTool()
+            text2sql.config = self.config
+            logger.info(f"[SearchToolRegistry._register_default_tools] Created Text2SQLTool instance")
+            
             # Add tools to registry
             logger.info(f"[SearchToolRegistry._register_default_tools] Registering tools in registry")
             self.register_tool(general_search)
             self.register_tool(github_search)
             self.register_tool(academic_search)
             self.register_tool(linkedin_search)
+            self.register_tool(text2sql)
             
             logger.info(f"Registered {len(self.tools)} default search tools")
             logger.info(f"[SearchToolRegistry._register_default_tools] Registered tools: {list(self.tools.keys())}")

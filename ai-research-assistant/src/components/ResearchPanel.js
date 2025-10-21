@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import InitialScreen from "./InitialScreen"
 import ResearchItemList from "./ResearchItemList"
-import { startResearch, setShouldAutoReconnect, cancelResearch } from "../services/researchService"
+import { startResearch, setShouldAutoReconnect, cancelResearch, sendSteeringMessage, getCurrentTodoPlan, getCurrentSessionId } from "../services/researchService"
 
 // Modern WaveText component with sophisticated animation
 const WaveText = ({ children }) => (
@@ -63,14 +63,13 @@ const CollapsibleSearchQuery = ({ query }) => {
   }
 
   return (
-    <div className="px-6 py-5 border-b border-slate-200/60 bg-gradient-to-r from-slate-50 to-blue-50/30 sticky top-0 z-20 backdrop-blur-sm">
-      <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-sm hover:shadow-md transition-all duration-300 p-5">
+    <div className="px-6 py-5 border-b border-slate-200/60 bg-gradient-to-r from-[#f3f3f3]/80 via-white/50 to-blue-50/50 sticky top-0 z-20 backdrop-blur-sm">
+      <div className="bg-white/95 backdrop-blur-sm rounded-2xl border border-slate-200/60 shadow-[0_4px_20px_rgb(0,0,0,0.08)] hover:shadow-[0_4px_25px_rgb(0,0,0,0.12)] transition-all duration-300 p-5">
         <div className="relative">
           <div
             ref={textRef}
-            className={`text-base font-semibold text-slate-800 transition-all duration-300 leading-relaxed ${
-              !isExpanded && shouldShowToggle ? "overflow-hidden pr-14" : ""
-            }`}
+            className={`text-base font-semibold text-slate-800 transition-all duration-300 leading-relaxed ${!isExpanded && shouldShowToggle ? "overflow-hidden pr-14" : ""
+              }`}
             style={{
               maxHeight: !isExpanded && shouldShowToggle ? "4.5em" : "none",
               lineHeight: "1.5em",
@@ -108,12 +107,14 @@ function ResearchPanel({
   modelProvider,
   modelName,
   uploadedFileContent,
+  databaseInfo,
   onBeginResearch: onBeginResearchApp,
   isResearching: isResearchingApp,
   onReportGenerated,
   onShowItemDetails,
   onShowReportDetails,
   onStopResearch,
+  onTodoPlanUpdate,
 }) {
   const [researchItems, setResearchItems] = useState([])
   const [localFinalReportContent, setLocalFinalReportContent] = useState("")
@@ -122,6 +123,12 @@ function ResearchPanel({
   const [error, setError] = useState(null)
   const [isLoadingResults, setIsLoadingResults] = useState(false)
   const [receivedActivities, setReceivedActivities] = useState({})
+
+  // Steering-related state
+  const [steeringMessage, setSteeringMessage] = useState("")
+  const [currentTodoPlan, setCurrentTodoPlan] = useState("")
+  const [todoVersion, setTodoVersion] = useState(0)
+  const [queuedMessages, setQueuedMessages] = useState([]) // Track queued steering messages
 
   // Global static reference for visualization tracking that persists across component lifecycles
   if (!window.sentVisualizationIdentifiers) {
@@ -154,11 +161,32 @@ function ResearchPanel({
   const handleStopResearch = useCallback(() => {
     setShouldAutoReconnect(false)
     cancelResearch()
+
+    // Reset all state to initial values (complete cleanup for fresh session)
     setIsActiveResearch(false)
     setIsResearchComplete(false)
     setIsLoadingResults(false)
     setResearchItems([])
+    setLocalFinalReportContent("")
+    setError(null)
     setDebugLastEvent(null)
+    setSteeringMessage("")
+    setCurrentTodoPlan("")
+    setTodoVersion(0)
+    setQueuedMessages([])
+    setReceivedActivities({})
+
+    // Clear tracking references
+    if (visualizationTrackingRef.current) {
+      visualizationTrackingRef.current.clear()
+    }
+    if (codeSnippetTrackingRef.current) {
+      codeSnippetTrackingRef.current.clear()
+    }
+    activeParentItemsRef.current = {}
+    shownSourcesRef.current.clear()
+    searchQueriesRef.current.clear()
+    eventCounterRef.current = 0
 
     if (researchRequestRef.current) {
       researchRequestRef.current.inProgress = false
@@ -167,14 +195,107 @@ function ResearchPanel({
     if (onStopResearch) {
       onStopResearch()
     }
-  }, [
-    onStopResearch,
-    setIsActiveResearch,
-    setIsResearchComplete,
-    setIsLoadingResults,
-    setResearchItems,
-    setDebugLastEvent,
-  ])
+  }, [onStopResearch])
+
+  // Handle starting a new research (reset everything)
+  const handleNewResearch = useCallback(() => {
+    // Cancel any ongoing research
+    setShouldAutoReconnect(false)
+    cancelResearch()
+
+    // Reset all state to initial values
+    setIsActiveResearch(false)
+    setIsResearchComplete(false)
+    setIsLoadingResults(false)
+    setResearchItems([])
+    setLocalFinalReportContent("")
+    setError(null)
+    setDebugLastEvent(null)
+    setSteeringMessage("")
+    setCurrentTodoPlan("")
+    setTodoVersion(0)
+    setQueuedMessages([]) // Clear queued steering messages
+    setReceivedActivities({})
+
+    // Clear tracking references
+    if (visualizationTrackingRef.current) {
+      visualizationTrackingRef.current.clear()
+    }
+    if (codeSnippetTrackingRef.current) {
+      codeSnippetTrackingRef.current.clear()
+    }
+    activeParentItemsRef.current = {}
+    shownSourcesRef.current.clear()
+    searchQueriesRef.current.clear()
+    eventCounterRef.current = 0
+
+    if (researchRequestRef.current) {
+      researchRequestRef.current.inProgress = false
+    }
+
+    // Call onStopResearch to clear parent state
+    if (onStopResearch) {
+      onStopResearch()
+    }
+  }, [onStopResearch])
+
+  // Listen for plan status updates from polling
+  useEffect(() => {
+    const handlePlanUpdate = (event) => {
+      if (event.detail) {
+        if (event.detail.queued_message_list !== undefined) {
+          setQueuedMessages(event.detail.queued_message_list);
+        }
+
+        if (event.detail.current_plan) {
+          setCurrentTodoPlan(event.detail.current_plan);
+          if (onTodoPlanUpdate) {
+            onTodoPlanUpdate(event.detail.current_plan);
+          }
+        }
+
+        if (event.detail.todo_version !== undefined) {
+          setTodoVersion(event.detail.todo_version);
+        }
+      }
+    };
+
+    window.addEventListener('planStatusUpdate', handlePlanUpdate);
+
+    return () => {
+      window.removeEventListener('planStatusUpdate', handlePlanUpdate);
+    };
+  }, [onTodoPlanUpdate]);
+
+  // Handle sending steering messages
+  const handleSendSteeringMessage = useCallback(async () => {
+    if (!steeringMessage.trim() || !isActiveResearch) return;
+
+    const messageText = steeringMessage.trim();
+
+    // NO optimistic update - let polling handle queue display
+    // This ensures UI always reflects backend state
+
+    try {
+      setSteeringMessage(""); // Clear the input immediately
+      await sendSteeringMessage(messageText);
+
+      // Polling will automatically update the queue from backend response
+      // Queue will appear within 1-3 seconds and clear when processed
+
+      // Refresh todo plan after sending message
+      setTimeout(async () => {
+        const todoPlan = await getCurrentTodoPlan();
+        if (todoPlan) {
+          setCurrentTodoPlan(todoPlan);
+        }
+      }, 1000);
+
+    } catch (error) {
+      console.error('Error sending steering message:', error);
+      setError(`Failed to send steering message: ${error.message}`);
+    }
+  }, [steeringMessage, isActiveResearch]);
 
   // Helper function to format timestamps
   const formatTimestamp = (timestamp) => {
@@ -319,7 +440,6 @@ function ResearchPanel({
 
     if (event.data) {
       if (typeof event.data.activity === "string") {
-        console.log("Found activity in event.data")
         return event.data.activity
       }
 
@@ -331,7 +451,6 @@ function ResearchPanel({
         event.data.generations[0][0] &&
         event.data.generations[0][0].text
       ) {
-        console.log("Found activity in event.data.generations[0][0].text")
         return event.data.generations[0][0].text
       }
 
@@ -344,13 +463,11 @@ function ResearchPanel({
         event.data.generations[0][0].message &&
         event.data.generations[0][0].message.content
       ) {
-        console.log("Found activity in event.data.generations[0][0].message.content")
         return event.data.generations[0][0].message.content
       }
 
       if (event.data.data) {
         if (typeof event.data.data.activity === "string") {
-          console.log("Found activity in event.data.data")
           return event.data.data.activity
         }
 
@@ -362,14 +479,12 @@ function ResearchPanel({
           event.data.data.generations[0][0] &&
           event.data.data.generations[0][0].text
         ) {
-          console.log("Found activity in event.data.data.generations[0][0].text")
           return event.data.data.generations[0][0].text
         }
       }
 
       if (event.data.output) {
         if (typeof event.data.output.activity === "string") {
-          console.log("Found activity in event.data.output")
           return event.data.output.activity
         }
 
@@ -381,13 +496,11 @@ function ResearchPanel({
           event.data.output.generations[0][0] &&
           event.data.output.generations[0][0].text
         ) {
-          console.log("Found activity in event.data.output.generations[0][0].text")
           return event.data.output.generations[0][0].text
         }
       }
     }
 
-    console.log("No activity text found in event")
     return null
   }, [])
 
@@ -424,6 +537,35 @@ function ResearchPanel({
   const handleResearchEvent = useCallback(
     (event) => {
       setDebugLastEvent(JSON.stringify(event).substring(0, 300) + "...")
+      console.log('[RESEARCH_EVENT]', event.event_type || event.type, event)
+
+      // Handle session status events for steering
+      if (event.event_type === 'session_status' && event.data) {
+        if (event.data.current_plan) {
+          setCurrentTodoPlan(event.data.current_plan);
+          if (onTodoPlanUpdate) {
+            onTodoPlanUpdate(event.data.current_plan);
+          }
+        }
+        if (event.data.todo_version !== undefined) {
+          setTodoVersion(event.data.todo_version);
+        }
+        return;
+      }
+
+      // Handle steering_updated events
+      if (event.event_type === 'steering_updated' && event.data) {
+        if (event.data.current_plan) {
+          setCurrentTodoPlan(event.data.current_plan);
+          if (onTodoPlanUpdate) {
+            onTodoPlanUpdate(event.data.current_plan);
+          }
+        }
+        if (event.data.todo_version !== undefined) {
+          setTodoVersion(event.data.todo_version);
+        }
+        return;
+      }
 
       // Frontend Check 1: Basic Event ID Deduplication
       if (event.eventId && receivedActivities[event.eventId]) {
@@ -500,6 +642,19 @@ function ResearchPanel({
       try {
         switch (eventType) {
           case "connected":
+            // If steering is enabled, fetch initial todo plan
+            const sessionId = getCurrentSessionId();
+            if (sessionId) {
+              getCurrentTodoPlan().then(plan => {
+                if (plan) {
+                  setCurrentTodoPlan(plan);
+                  setTodoVersion(prev => prev + 1);
+                  if (onTodoPlanUpdate) {
+                    onTodoPlanUpdate(plan);
+                  }
+                }
+              }).catch(err => console.error('Failed to fetch initial todo plan:', err));
+            }
             break
 
           case "activity_generated":
@@ -538,11 +693,9 @@ function ResearchPanel({
             break
 
           case "stream_start":
-            console.log("Connected to research server at", new Date().toTimeString().split(" ")[0])
             break
 
           case "reconnecting":
-            console.log("Reconnection in progress:", event.data)
             addResearchItem({
               type: "status",
               title: "Connection Lost",
@@ -552,7 +705,6 @@ function ResearchPanel({
             break
 
           case "reconnect_failed":
-            console.log("Reconnection failed:", event.data)
             addResearchItem({
               type: "status",
               title: "Connection Failed",
@@ -726,15 +878,15 @@ function ResearchPanel({
                     content: `<div class="text-sm text-slate-700 mb-1">Found ${uniqueSources.length} new source${uniqueSources.length !== 1 ? "s" : ""} to analyze:</div>
                           <div class="source-list border-l-4 border-blue-200 pl-3 py-1">
                             ${uniqueSources
-                              .map((source) => {
-                                const domain = source.url ? new URL(source.url).hostname : "Unknown"
-                                const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=32`
-                                return `<div class="source-item p-1 hover:bg-slate-100 rounded flex items-center gap-2">
+                        .map((source) => {
+                          const domain = source.url ? new URL(source.url).hostname : "Unknown"
+                          const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=32`
+                          return `<div class="source-item p-1 hover:bg-slate-100 rounded flex items-center gap-2">
                                       <img src="${faviconUrl}" class="w-5 h-5" alt="${domain}" />
                                       <a href="${source.url}" target="_blank" class="text-blue-600 hover:underline overflow-hidden text-ellipsis">${source.title || source.url}</a>
                                     </div>`
-                              })
-                              .join("")}
+                        })
+                        .join("")}
                           </div>`,
                     nodeData: { sources: uniqueSources },
                     type: "assistant-result",
@@ -757,10 +909,8 @@ function ResearchPanel({
               }
 
               if (nodeName === "generate_report" || nodeName === "reflect_on_report") {
-                console.log("Report generation node ended, checking output...")
                 const reportOutput = event.data.output?.report_output
                 if (reportOutput) {
-                  console.log("FOUND report output in node_end event:", reportOutput.substring(0, 200) + "...")
                   setLocalFinalReportContent(reportOutput)
                   setIsResearchComplete(true)
                   setIsLoadingResults(false)
@@ -810,10 +960,25 @@ function ResearchPanel({
             setIsResearchComplete(true)
             setIsLoadingResults(false)
 
+            setQueuedMessages([])
+
+            // Fetch final task status to update todo plan with all completed tasks
+            const fetchFinalTodoStatus = async () => {
+              try {
+                const { getCurrentSessionId, pollForPlanUpdates } = await import('../services/researchService')
+                const sessionId = getCurrentSessionId()
+                if (sessionId) {
+                  await pollForPlanUpdates()
+                }
+              } catch (error) {
+                console.error("[COMPLETION] Error fetching final todo status:", error)
+              }
+            }
+            fetchFinalTodoStatus()
+
             if (event.data) {
               const reportContent = event.data.report || event.data.summary
               if (reportContent) {
-                console.log("Received final report content, length:", reportContent.length)
                 setLocalFinalReportContent(reportContent)
 
                 addResearchItem({
@@ -828,7 +993,7 @@ function ResearchPanel({
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                         </svg>
                       </div>
-                      <span class="font-medium text-slate-800">Research Complete</span>
+                      <span class="font-medium text-slate-800">Research Complete - All Tasks Finished</span>
                     </div>
                     <button class="view-report-button flex items-center gap-2 px-4 py-2 bg-slate-50 border border-slate-200 text-slate-700 rounded-lg shadow-sm hover:bg-slate-100 hover:border-slate-300 transition-all duration-200 group">
                       <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -855,11 +1020,9 @@ function ResearchPanel({
             }
 
             try {
-              console.log("Setting shouldAutoReconnect to false to prevent restarts")
               setShouldAutoReconnect(false)
 
               setTimeout(() => {
-                console.log("DELAYED CHECK - ensuring research is marked as complete")
                 setIsActiveResearch(false)
                 setIsResearchComplete(true)
                 setIsLoadingResults(false)
@@ -886,7 +1049,6 @@ function ResearchPanel({
             break
 
           default:
-            console.log("Unhandled event type:", eventType, event)
             if (event.data) {
               const formattedTime = event.timestamp ? formatTimestamp(event.timestamp) : "Unknown time"
               addResearchItem({
@@ -915,6 +1077,9 @@ function ResearchPanel({
       setLocalFinalReportContent,
       onReportGenerated,
       setError,
+      setCurrentTodoPlan,
+      setTodoVersion,
+      onTodoPlanUpdate,
     ],
   )
 
@@ -952,7 +1117,7 @@ function ResearchPanel({
   }, [])
 
   const onBeginResearchInternal = useCallback(
-    (q, extra, min, benchmark, modelCfg, fileContent) => {
+    (q, extra, min, benchmark, modelCfg, fileContent, databaseInfo) => {
       // Clear all data
       setResearchItems([])
       setLocalFinalReportContent("")
@@ -970,7 +1135,7 @@ function ResearchPanel({
       visualizationTrackingRef.current.clear()
       codeSnippetTrackingRef.current.clear()
 
-      onBeginResearchApp(q, extra, min, benchmark, modelCfg, fileContent)
+      onBeginResearchApp(q, extra, min, benchmark, modelCfg, fileContent, databaseInfo)
     },
     [
       onBeginResearchApp,
@@ -1009,9 +1174,9 @@ function ResearchPanel({
       modelProvider,
       modelName,
       uploadedFileContent,
+      databaseInfo,
       handleResearchEvent,
       () => {
-        console.log("Research completed successfully (callback from startResearch)")
         setIsResearchComplete(true)
         setIsLoadingResults(false)
         setIsActiveResearch(false)
@@ -1026,6 +1191,7 @@ function ResearchPanel({
         handleResearchError(error)
         setIsActiveResearch(false)
       },
+      true // Enable steering
     )
   }, [
     query,
@@ -1101,17 +1267,17 @@ function ResearchPanel({
   // Helper function to format model name for display
   const getFormattedModelName = (provider, modelName) => {
     if (!provider || !modelName) return "Unknown Model"
-    
+
     // Format model names for better display
     const modelDisplayNames = {
       "o4-mini": "o4-mini",
       "o4-mini-high": "o4-mini-high",
-      "o3-mini": "o3-mini", 
+      "o3-mini": "o3-mini",
       "claude-sonnet-4": "Claude Sonnet 4",
       "claude-3-7-sonnet": "Claude 3.7 Sonnet",
       "gemini-2.5-pro": "Gemini 2.5 Pro"
     }
-    
+
     return modelDisplayNames[modelName] || modelName
   }
 
@@ -1121,29 +1287,29 @@ function ResearchPanel({
       if (modelName === "o4-mini-high") {
         return (
           <svg width="16" height="16" viewBox="0 0 256 260" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M239.184 106.203a64.716 64.716 0 0 0-5.576-53.103C219.452 28.459 191 15.784 163.213 21.74A65.586 65.586 0 0 0 52.096 45.22a64.716 64.716 0 0 0-43.23 31.36c-14.31 24.602-11.061 55.634 8.033 76.74a64.665 64.665 0 0 0 5.525 53.102c14.174 24.65 42.644 37.324 70.446 31.36a64.72 64.72 0 0 0 48.754 21.744c28.481.025 53.714-18.361 62.414-45.481a64.767 64.767 0 0 0 43.229-31.36c14.137-24.558 10.875-55.423-8.083-76.483Zm-97.56 136.338a48.397 48.397 0 0 1-31.105-11.255l1.535-.87 51.67-29.825a8.595 8.595 0 0 0 4.247-7.367v-72.85l21.845 12.636c.218.111.37.32.409.563v60.367c-.056 26.818-21.783 48.545-48.601 48.601Zm-104.466-44.61a48.345 48.345 0 0 1-5.781-32.589l1.534.921 51.722 29.826a8.339 8.339 0 0 0 8.441 0l63.181-36.425v25.221a.87.87 0 0 1-.358.665l-52.335 30.184c-23.257 13.398-52.97 5.431-66.404-17.803ZM23.549 85.38a48.499 48.499 0 0 1 25.58-21.333v61.39a8.288 8.288 0 0 0 4.195 7.316l62.874 36.272-21.845 12.636a.819.819 0 0 1-.767 0L41.353 151.53c-23.211-13.454-31.171-43.144-17.804-66.405v.256Zm179.466 41.695-63.08-36.63L161.73 77.86a.819.819 0 0 1 .768 0l52.233 30.184a48.6 48.6 0 0 1-7.316 87.635v-61.391a8.544 8.544 0 0 0-4.4-7.213Zm21.742-32.69-1.535-.922-51.619-30.081a8.39 8.39 0 0 0-8.492 0L99.98 99.808V74.587a.716.716 0 0 1 .307-.665l52.233-30.133a48.652 48.652 0 0 1 72.236 50.391v.205ZM88.061 139.097l-21.845-12.585a.87.87 0 0 1-.41-.614V65.685a48.652 48.652 0 0 1 79.757-37.346l-1.535.87-51.67 29.825a8.595 8.595 0 0 0-4.246 7.367l-.051 72.697Zm11.868-25.58 28.138-16.217 28.188 16.218v32.434l-28.086 16.218-28.188-16.218-.052-32.434Z" fill="#FFD700"/>
+            <path d="M239.184 106.203a64.716 64.716 0 0 0-5.576-53.103C219.452 28.459 191 15.784 163.213 21.74A65.586 65.586 0 0 0 52.096 45.22a64.716 64.716 0 0 0-43.23 31.36c-14.31 24.602-11.061 55.634 8.033 76.74a64.665 64.665 0 0 0 5.525 53.102c14.174 24.65 42.644 37.324 70.446 31.36a64.72 64.72 0 0 0 48.754 21.744c28.481.025 53.714-18.361 62.414-45.481a64.767 64.767 0 0 0 43.229-31.36c14.137-24.558 10.875-55.423-8.083-76.483Zm-97.56 136.338a48.397 48.397 0 0 1-31.105-11.255l1.535-.87 51.67-29.825a8.595 8.595 0 0 0 4.247-7.367v-72.85l21.845 12.636c.218.111.37.32.409.563v60.367c-.056 26.818-21.783 48.545-48.601 48.601Zm-104.466-44.61a48.345 48.345 0 0 1-5.781-32.589l1.534.921 51.722 29.826a8.339 8.339 0 0 0 8.441 0l63.181-36.425v25.221a.87.87 0 0 1-.358.665l-52.335 30.184c-23.257 13.398-52.97 5.431-66.404-17.803ZM23.549 85.38a48.499 48.499 0 0 1 25.58-21.333v61.39a8.288 8.288 0 0 0 4.195 7.316l62.874 36.272-21.845 12.636a.819.819 0 0 1-.767 0L41.353 151.53c-23.211-13.454-31.171-43.144-17.804-66.405v.256Zm179.466 41.695-63.08-36.63L161.73 77.86a.819.819 0 0 1 .768 0l52.233 30.184a48.6 48.6 0 0 1-7.316 87.635v-61.391a8.544 8.544 0 0 0-4.4-7.213Zm21.742-32.69-1.535-.922-51.619-30.081a8.39 8.39 0 0 0-8.492 0L99.98 99.808V74.587a.716.716 0 0 1 .307-.665l52.233-30.133a48.652 48.652 0 0 1 72.236 50.391v.205ZM88.061 139.097l-21.845-12.585a.87.87 0 0 1-.41-.614V65.685a48.652 48.652 0 0 1 79.757-37.346l-1.535.87-51.67 29.825a8.595 8.595 0 0 0-4.246 7.367l-.051 72.697Zm11.868-25.58 28.138-16.217 28.188 16.218v32.434l-28.086 16.218-28.188-16.218-.052-32.434Z" fill="#FFD700" />
           </svg>
         )
       }
       return (
         <svg width="16" height="16" viewBox="0 0 256 260" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M239.184 106.203a64.716 64.716 0 0 0-5.576-53.103C219.452 28.459 191 15.784 163.213 21.74A65.586 65.586 0 0 0 52.096 45.22a64.716 64.716 0 0 0-43.23 31.36c-14.31 24.602-11.061 55.634 8.033 76.74a64.665 64.665 0 0 0 5.525 53.102c14.174 24.65 42.644 37.324 70.446 31.36a64.72 64.72 0 0 0 48.754 21.744c28.481.025 53.714-18.361 62.414-45.481a64.767 64.767 0 0 0 43.229-31.36c14.137-24.558 10.875-55.423-8.083-76.483Zm-97.56 136.338a48.397 48.397 0 0 1-31.105-11.255l1.535-.87 51.67-29.825a8.595 8.595 0 0 0 4.247-7.367v-72.85l21.845 12.636c.218.111.37.32.409.563v60.367c-.056 26.818-21.783 48.545-48.601 48.601Zm-104.466-44.61a48.345 48.345 0 0 1-5.781-32.589l1.534.921 51.722 29.826a8.339 8.339 0 0 0 8.441 0l63.181-36.425v25.221a.87.87 0 0 1-.358.665l-52.335 30.184c-23.257 13.398-52.97 5.431-66.404-17.803ZM23.549 85.38a48.499 48.499 0 0 1 25.58-21.333v61.39a8.288 8.288 0 0 0 4.195 7.316l62.874 36.272-21.845 12.636a.819.819 0 0 1-.767 0L41.353 151.53c-23.211-13.454-31.171-43.144-17.804-66.405v.256Zm179.466 41.695-63.08-36.63L161.73 77.86a.819.819 0 0 1 .768 0l52.233 30.184a48.6 48.6 0 0 1-7.316 87.635v-61.391a8.544 8.544 0 0 0-4.4-7.213Zm21.742-32.69-1.535-.922-51.619-30.081a8.39 8.39 0 0 0-8.492 0L99.98 99.808V74.587a.716.716 0 0 1 .307-.665l52.233-30.133a48.652 48.652 0 0 1 72.236 50.391v.205ZM88.061 139.097l-21.845-12.585a.87.87 0 0 1-.41-.614V65.685a48.652 48.652 0 0 1 79.757-37.346l-1.535.87-51.67 29.825a8.595 8.595 0 0 0-4.246 7.367l-.051 72.697Zm11.868-25.58 28.138-16.217 28.188 16.218v32.434l-28.086 16.218-28.188-16.218-.052-32.434Z" fill="#10A37F"/>
+          <path d="M239.184 106.203a64.716 64.716 0 0 0-5.576-53.103C219.452 28.459 191 15.784 163.213 21.74A65.586 65.586 0 0 0 52.096 45.22a64.716 64.716 0 0 0-43.23 31.36c-14.31 24.602-11.061 55.634 8.033 76.74a64.665 64.665 0 0 0 5.525 53.102c14.174 24.65 42.644 37.324 70.446 31.36a64.72 64.72 0 0 0 48.754 21.744c28.481.025 53.714-18.361 62.414-45.481a64.767 64.767 0 0 0 43.229-31.36c14.137-24.558 10.875-55.423-8.083-76.483Zm-97.56 136.338a48.397 48.397 0 0 1-31.105-11.255l1.535-.87 51.67-29.825a8.595 8.595 0 0 0 4.247-7.367v-72.85l21.845 12.636c.218.111.37.32.409.563v60.367c-.056 26.818-21.783 48.545-48.601 48.601Zm-104.466-44.61a48.345 48.345 0 0 1-5.781-32.589l1.534.921 51.722 29.826a8.339 8.339 0 0 0 8.441 0l63.181-36.425v25.221a.87.87 0 0 1-.358.665l-52.335 30.184c-23.257 13.398-52.97 5.431-66.404-17.803ZM23.549 85.38a48.499 48.499 0 0 1 25.58-21.333v61.39a8.288 8.288 0 0 0 4.195 7.316l62.874 36.272-21.845 12.636a.819.819 0 0 1-.767 0L41.353 151.53c-23.211-13.454-31.171-43.144-17.804-66.405v.256Zm179.466 41.695-63.08-36.63L161.73 77.86a.819.819 0 0 1 .768 0l52.233 30.184a48.6 48.6 0 0 1-7.316 87.635v-61.391a8.544 8.544 0 0 0-4.4-7.213Zm21.742-32.69-1.535-.922-51.619-30.081a8.39 8.39 0 0 0-8.492 0L99.98 99.808V74.587a.716.716 0 0 1 .307-.665l52.233-30.133a48.652 48.652 0 0 1 72.236 50.391v.205ZM88.061 139.097l-21.845-12.585a.87.87 0 0 1-.41-.614V65.685a48.652 48.652 0 0 1 79.757-37.346l-1.535.87-51.67 29.825a8.595 8.595 0 0 0-4.246 7.367l-.051 72.697Zm11.868-25.58 28.138-16.217 28.188 16.218v32.434l-28.086 16.218-28.188-16.218-.052-32.434Z" fill="#10A37F" />
         </svg>
       )
     } else if (provider === "anthropic") {
       return (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M13.827 3.52h3.603L24 20h-3.603l-6.57-16.48zm-7.258 0h3.767L16.906 20h-3.674l-1.343-3.461H5.017l-1.344 3.46H0L6.57 3.522zm4.132 9.959L8.453 7.687 6.205 13.48H10.7z" fill="#BD5CFF"/>
+          <path d="M13.827 3.52h3.603L24 20h-3.603l-6.57-16.48zm-7.258 0h3.767L16.906 20h-3.674l-1.343-3.461H5.017l-1.344 3.46H0L6.57 3.522zm4.132 9.959L8.453 7.687 6.205 13.48H10.7z" fill="#BD5CFF" />
         </svg>
       )
     } else if (provider === "google") {
       return (
         <svg width="16" height="16" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M14.0001 0L17.5001 10.5L28.0001 14L17.5001 17.5L14.0001 28L10.5001 17.5L0.000061 14L10.5001 10.5L14.0001 0Z" fill="url(#paint0_linear_gemini)"/>
+          <path d="M14.0001 0L17.5001 10.5L28.0001 14L17.5001 17.5L14.0001 28L10.5001 17.5L0.000061 14L10.5001 10.5L14.0001 0Z" fill="url(#paint0_linear_gemini)" />
           <defs>
             <linearGradient id="paint0_linear_gemini" x1="0.000061" y1="14" x2="28.0001" y2="14" gradientUnits="userSpaceOnUse">
-              <stop stopColor="#8E54E9"/>
-              <stop offset="1" stopColor="#4776E6"/>
+              <stop stopColor="#8E54E9" />
+              <stop offset="1" stopColor="#4776E6" />
             </linearGradient>
           </defs>
         </svg>
@@ -1153,43 +1319,27 @@ function ResearchPanel({
   }
 
   return (
-    <>
+    <div className="h-full w-full">
       {!isResearchingApp && !isActiveResearch && researchItems.length === 0 ? (
         <InitialScreen onBeginResearch={onBeginResearchInternal} />
       ) : (
-        <div className="flex flex-col h-full w-full bg-gradient-to-br from-slate-50 via-blue-50/20 to-indigo-50/30 overflow-hidden">
-          {/* Header with gradient and improved typography */}
-          <div className="px-4 py-1 sm:px-6 sm:py-1 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border-b border-slate-700/50">
-            <div className="flex items-center space-x-3">
-              <svg className="w-8 h-8 text-blue-400" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path d="M18.9 11.1c-.1-2.4-2.1-4.4-4.6-4.4-1.4 0-2.7.6-3.6 1.7-.4-.2-.9-.3-1.4-.3-1.8 0-3.3 1.5-3.3 3.3 0 .3 0 .5.1.8C4.8 12.6 4 13.7 4 15c0 1.7 1.3 3 3 3h11c1.7 0 3-1.3 3-3 0-1.4-.9-2.6-2.1-2.9z"/>
-              </svg>
-              <div style={{ marginTop: '-10px' }}>
-                <h1 className="text-lg sm:text-xl font-bold text-white tracking-tight">Salesforce AI Research</h1>
-              </div>
-            </div>
-          </div>
-
+        <div className="flex flex-col h-full w-full bg-gradient-to-br from-blue-50 via-white to-[#f3f3f3] min-h-0">
           {/* User query display - modern header */}
           <CollapsibleSearchQuery query={query} />
 
-          {/* Main content with enhanced styling */}
+          {/* Main content with enhanced styling - add bottom padding for controls */}
           <div
             id="research-items-container"
-            className="flex-1 overflow-y-auto px-6 py-6 space-y-6"
-            style={{
-              height: "auto",
-              paddingBottom: "24px",
-            }}
+            className="flex-1 min-h-0 overflow-y-auto px-4 md:px-6 py-4 md:py-6 pb-0 space-y-4 md:space-y-6"
           >
             {/* AI response with research steps */}
-            <div className="flex-1">
+            <div>
               <div className="space-y-3">
                 {/* Enhanced Benchmark Mode Header */}
                 {benchmarkMode && (
-                  <div className="bg-gradient-to-r from-blue-50/80 to-indigo-50/80 backdrop-blur-sm border border-blue-200/60 rounded-2xl p-6 mb-6 shadow-sm hover:shadow-md transition-all duration-300">
+                  <div className="bg-gradient-to-r from-blue-50/80 to-[#e3f3ff] backdrop-blur-sm border border-[#0176d3]/30 rounded-2xl p-6 mb-6 shadow-sm hover:shadow-md transition-all duration-300">
                     <div className="flex items-center space-x-4">
-                      <div className="p-3 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-xl shadow-lg">
+                      <div className="p-3 bg-[#0176d3] rounded-xl shadow-lg">
                         <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path
                             strokeLinecap="round"
@@ -1302,58 +1452,99 @@ function ResearchPanel({
                     </WaveText>
                   </div>
                 )}
-                <div ref={messagesEndRef} />
+                <div ref={messagesEndRef} className="pb-4" />
               </div>
             </div>
           </div>
 
-          {/* Enhanced Footer with modern styling */}
-          <div className="border-t border-slate-200/60 p-6 sticky bottom-0 bg-gradient-to-r from-slate-50/90 to-blue-50/90 backdrop-blur-sm z-20 rounded-b-2xl mt-auto">
-            <div className="flex items-center space-x-3">
-              <input
-                type="text"
-                placeholder="Ask a follow-up question..."
-                className="flex-1 rounded-xl border border-slate-200/60 px-5 py-3 bg-white/80 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400 transition-all duration-300 placeholder-slate-400 font-medium shadow-sm hover:shadow-md"
-                disabled={isActiveResearch || isResearchComplete}
-              />
-              
-              {/* Model name display */}
-              <div className="flex items-center gap-2 px-3 py-2 bg-white/60 backdrop-blur-sm border border-slate-200/60 rounded-xl shadow-sm">
-                <div className="flex items-center justify-center w-6 h-6">
-                  {getModelIcon(modelProvider, modelName)}
+          {/* Enhanced Footer with modern styling - always visible */}
+          <div className="flex-shrink-0 border-t border-slate-200/60 px-4 md:px-5 py-2.5 md:py-3 bg-gradient-to-r from-[#f3f3f3]/80 via-white/50 to-blue-50/50 backdrop-blur-sm shadow-[0_-4px_20px_rgb(0,0,0,0.06)]">
+            <div className="max-w-full mx-auto">
+              {isResearchComplete ? (
+                // Show only New Research button when complete
+                <div className="flex justify-center">
+                  <button
+                    className="px-6 py-3 bg-[#0176d3] text-white rounded-xl hover:bg-[#014486] transition-all duration-300 font-semibold shadow-[0_4px_12px_rgba(1,118,211,0.3)] hover:shadow-[0_6px_16px_rgba(1,118,211,0.4)] hover:scale-105 active:scale-95 flex items-center gap-2"
+                    onClick={handleNewResearch}
+                    aria-label="Start New Research"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 4v16m8-8H4"
+                      />
+                    </svg>
+                    New Research
+                  </button>
                 </div>
-                <span className="text-xs font-medium text-slate-600 whitespace-nowrap">
-                  {getFormattedModelName(modelProvider, modelName)}
-                </span>
-              </div>
-              
-              <button
-                className={`p-3 rounded-xl transition-all duration-300 ${isActiveResearch || isResearchComplete ? "text-slate-400 cursor-not-allowed bg-slate-100/50" : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-700 shadow-sm hover:shadow-md hover:scale-105"}`}
-                disabled={isActiveResearch || isResearchComplete}
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2.5}
-                    d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-                  />
-                </svg>
-              </button>
-              {isActiveResearch && (
-                <button
-                  className="px-5 py-3 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl hover:from-red-600 hover:to-red-700 transition-all duration-300 font-semibold shadow-lg hover:shadow-xl transform hover:scale-105"
-                  onClick={handleStopResearch}
-                  aria-label="Stop Research"
-                >
-                  Stop
-                </button>
+              ) : (
+                // Show full controls during active research
+                <div className="space-y-3 max-w-full">
+                  {/* Queued Messages Display */}
+                  {queuedMessages.length > 0 && (
+                    <div className="space-y-2 max-w-full overflow-x-auto">
+                      {queuedMessages.map((msg, index) => (
+                        <div
+                          key={index}
+                          className="flex items-center gap-3 px-4 py-2.5 bg-gradient-to-r from-amber-50 to-orange-50/50 border border-amber-200/60 rounded-xl shadow-[0_2px_8px_rgb(245,158,11,0.15)] hover:shadow-[0_2px_12px_rgb(245,158,11,0.25)] backdrop-blur-sm transition-all duration-300 min-w-0"
+                        >
+                          <div className="flex items-center justify-center w-5 h-5 flex-shrink-0">
+                            <svg className="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          </div>
+                          <span className="text-sm font-semibold text-slate-700 flex-1 truncate">{msg}</span>
+                          <span className="text-xs text-amber-700 font-bold uppercase tracking-wide bg-gradient-to-r from-amber-100 to-orange-100 px-3 py-1 rounded-lg shadow-sm flex-shrink-0">Queued</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Input Controls */}
+                  <div className="flex items-center gap-2 md:gap-3 max-w-full">
+                    <input
+                      type="text"
+                      placeholder="Send steering message..."
+                      className="flex-1 min-w-0 rounded-xl border-2 border-slate-200/60 px-3 md:px-4 py-3 bg-white/80 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-[#0176d3]/50 focus:border-[#0176d3] transition-all duration-300 placeholder-slate-400 font-medium shadow-[0_2px_8px_rgb(0,0,0,0.06)] hover:shadow-[0_2px_12px_rgb(0,0,0,0.08)] focus:shadow-[0_2px_12px_rgba(1,118,211,0.15)]"
+                      value={steeringMessage}
+                      onChange={(e) => setSteeringMessage(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && handleSendSteeringMessage()}
+                      disabled={!isActiveResearch}
+                    />
+
+                    <button
+                      className={`p-3 rounded-xl transition-all duration-300 flex-shrink-0 ${!isActiveResearch || !steeringMessage.trim() ? "text-slate-400 cursor-not-allowed bg-slate-100/50 shadow-sm" : "bg-[#0176d3] text-white hover:bg-[#014486] shadow-[0_4px_12px_rgba(1,118,211,0.3)] hover:shadow-[0_6px_16px_rgba(1,118,211,0.4)] hover:scale-105 active:scale-95"}`}
+                      onClick={handleSendSteeringMessage}
+                      disabled={!isActiveResearch || !steeringMessage.trim()}
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2.5}
+                          d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+                        />
+                      </svg>
+                    </button>
+                    {isActiveResearch && (
+                      <button
+                        className="px-4 md:px-5 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-all duration-300 font-semibold shadow-[0_4px_12px_rgba(220,38,38,0.3)] hover:shadow-[0_6px_16px_rgba(220,38,38,0.4)] hover:scale-105 active:scale-95 flex-shrink-0"
+                        onClick={handleStopResearch}
+                        aria-label="Stop Research"
+                      >
+                        Stop
+                      </button>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           </div>
         </div>
       )}
-    </>
+    </div>
   )
 }
 

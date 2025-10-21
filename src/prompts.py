@@ -12,11 +12,27 @@ One year ago: {one_year_ago}
 {AUGMENT_KNOWLEDGE_CONTEXT}
 </AUGMENT_KNOWLEDGE_CONTEXT>
 
+<DATABASE_CONTEXT>
+{DATABASE_CONTEXT}
+</DATABASE_CONTEXT>
+
 You are an expert research assistant tasked with generating a targeted web search query.
 
 The query will gather in-depth information related to a specific topic through a comprehensive web search.
 
 This research process is general-purpose: it can be for market/competitive analysis, scientific research, product comparisons, policy/legal analysis, etc.
+
+<DATABASE_INTEGRATION>
+SIMPLE RULE: When a database file is available:
+- Questions about the uploaded data → use "text2sql" tool
+- Questions about external information → use search tools (general_search, academic_search, etc.)
+- NEVER pass SQL queries to search tools - search tools expect keywords, text2sql expects natural language
+
+Examples:
+✓ "What is the average satisfaction by group?" → text2sql
+✓ "Industry benchmarks for survey" → general_search
+✗ "SELECT AVG(...) FROM table" → NEVER use this with general_search
+</DATABASE_INTEGRATION>
 
 <AUGMENT_KNOWLEDGE_INTEGRATION>
 CRITICAL: When user-provided external knowledge is available, it should be treated as highly trustworthy and authoritative:
@@ -129,18 +145,40 @@ If this is a FOLLOW-UP query:
 {research_context}
 </RESEARCH_CONTEXT>
 
+<STEERING_INSTRUCTIONS>
+{steering_context}
+
+CRITICAL WORKFLOW: Before generating any queries, you MUST:
+
+1. **READ THE TODO.MD PLAN**: Carefully review the steering instructions above to understand current research priorities and constraints
+2. **CHECK FOR ACTIVE TASKS**: Look for pending tasks marked with [ ] that need to be addressed
+3. **IDENTIFY CONSTRAINTS**: Note any focus areas, exclusions, or priority topics
+4. **ADAPT YOUR APPROACH**: Modify your query generation strategy accordingly
+
+If steering instructions are provided above, you MUST follow them when generating queries:
+- **FOCUS ON**: Prioritize queries related to focus areas mentioned in steering instructions
+- **EXCLUDE**: Avoid queries about topics marked for exclusion in steering instructions  
+- **PRIORITIZE**: Give higher priority to queries matching prioritization instructions
+- **MARK PROGRESS**: Your queries should align with completing the active todo tasks
+
+The steering instructions represent real-time user guidance during the research process and should take precedence over generic research strategies. Think of the todo.md as your current work plan that you must follow.
+</STEERING_INSTRUCTIONS>
+
 <QUERY_REQUIREMENTS>
+BEFORE GENERATING QUERIES: Review the steering instructions above and ensure your queries align with the current todo.md plan.
+
 Your query should:
-1. Be simple and consist of plain keywords
-2. Focus on the most specific and relevant terms from the topic
-3. Avoid complex boolean operators (AND, OR, NOT) as they reduce search quality
-4. Avoid using quotation marks unless absolutely necessary for exact phrases
-5. Keep only the essential words that capture the core information need
-6. Include domain-specific terminology when useful
-7. Keep the query concise - around 5-10 key terms is usually optimal
-8. Keep the query under 400 characters for API compatibility
-9. AVOID speculation or assumptions about people, events, or outcomes
-10. For highly technical topics, include specific technical terms to ensure quality results
+1. **FOLLOW TODO.MD**: Align with active steering tasks and constraints from the plan above
+2. Be simple and consist of plain keywords
+3. Focus on the most specific and relevant terms from the topic
+4. Avoid complex boolean operators (AND, OR, NOT) as they reduce search quality
+5. Avoid using quotation marks unless absolutely necessary for exact phrases
+6. Keep only the essential words that capture the core information need
+7. Include domain-specific terminology when useful
+8. Keep the query concise - around 5-10 key terms is usually optimal
+9. Keep the query under 400 characters for API compatibility
+10. AVOID speculation or assumptions about people, events, or outcomes
+11. For highly technical topics, include specific technical terms to ensure quality results
 
 Time-sensitivity considerations:
 - For topics where recency matters (current events, latest technologies, market trends):
@@ -163,6 +201,8 @@ Strategic planning for complex topics:
 </QUERY_REQUIREMENTS>
 
 <FORMAT_GUIDELINES>
+WORKFLOW: Before formatting your response, review the steering instructions above and ensure your queries follow the current todo.md plan.
+
 For an INITIAL query on a COMPLEX topic, format your response as a JSON object:
 {{
     "topic_complexity": "complex",
@@ -215,6 +255,14 @@ Tool categories available:
 - math: For mathematical computations and analysis
 - code: For code-related operations and analysis
 - data: For data processing and analysis
+- text2sql: For querying uploaded databases with natural language (use when databases are available and query involves data analysis)
+
+Specific search tools available:
+- general_search: For broad topics that don't fit specialized categories (DO NOT use if databases are available and query involves data analysis)
+- academic_search: For scholarly/academic/scientific topics and research papers
+- github_search: For code, programming, and software development topics
+- linkedin_search: For professional profiles, companies, and industry experts
+- text2sql: For querying uploaded databases with natural language (MANDATORY when databases are available and query involves data analysis)
 
 When using math operations, format queries as two numbers separated by a space:
 Example: "10 5" for any mathematical operation.
@@ -324,11 +372,37 @@ Example 4 (Biographical query with subtopics):
         }}
     ]
 }}
+
+Example 5 (Database analysis with text2sql):
+{{
+    "topic_complexity": "complex",
+    "main_query": "sales performance analysis customer insights",
+    "main_tool": "text2sql",
+    "subtopics": [
+        {{
+            "name": "Sales Trends Analysis",
+            "query": "What are the sales trends by region and product category?",
+            "aspect": "analyzing sales performance and trends from uploaded database",
+            "suggested_tool": "text2sql"
+        }},
+        {{
+            "name": "Customer Segmentation",
+            "query": "Show me customer segments and their purchasing patterns",
+            "aspect": "identifying customer segments and behavior patterns",
+            "suggested_tool": "text2sql"
+        }},
+        {{
+            "name": "Market Context",
+            "query": "industry sales trends market analysis {current_year}",
+            "aspect": "external market context and industry benchmarks",
+            "suggested_tool": "general_search"
+        }}
+    ]
+}}
 </EXAMPLES>
 
 Provide your response in JSON format.
 """
-
 
 
 # This prompt is used to summarize a list of web search results into a comprehensive research report.
@@ -748,6 +822,56 @@ Research Completeness Criteria with Uploaded Knowledge:
 - LOW COMPLETENESS: Neither uploaded knowledge nor web research adequately covers key aspects
 </AUGMENT_KNOWLEDGE_EVALUATION>
 
+<TODO_DRIVEN_REFLECTION>
+CRITICAL: This research uses a task queue to track what needs to be researched.
+
+=== PENDING TASKS (Need Your Evaluation) ===
+{pending_tasks}
+
+=== ALREADY COMPLETED (For Context Only) ===
+{completed_tasks}
+
+=== USER STEERING MESSAGES (if any, HIGHEST PRIORITY!) ===
+{steering_messages}
+
+YOUR TASK - Update the todo list:
+
+1. MARK COMPLETED: Which PENDING tasks were addressed in this research loop?
+   - Review ONLY the pending tasks listed above
+   - Check if the current summary now covers those areas
+   - Return their task_ids in "mark_completed" list
+   - IMPORTANT: ONLY evaluate the PENDING tasks - do NOT mark tasks from "ALREADY COMPLETED"
+
+2. CANCEL TASKS: Which pending tasks are no longer relevant?
+   - Based on current findings OR user steering messages
+   - Cancel tasks that don't align with the research direction
+   - Return their task_ids in "cancel_tasks" list
+
+3. ADD NEW TASKS: What critical areas still need research?
+   - **FIRST PRIORITY**: If user sent steering messages above, create specific tasks to address each steering request
+   - Then, identify other knowledge gaps in the current summary
+   - IMPORTANT: Check "ALREADY COMPLETED" section to avoid creating duplicate tasks
+   - Each new task = one specific search topic
+   - Keep tasks simple and searchable (e.g. "Research X's work at Y", "Find X's publications in Z")
+   - Return as objects with "description", "rationale", and "source" in "add_tasks" list
+   - **Source field REQUIRED**: "steering_message" (for user requests), "knowledge_gap" (for system-identified gaps), or "original_query" (for initial query aspects)
+
+4. CLEAR MESSAGES: Which steering messages are FULLY ADDRESSED?
+   - Steering messages above are indexed like [0] "message text", [1] "another message", etc.
+   - Return indices (e.g., [0, 1]) of messages that are now fully covered by tasks
+   - Only clear a message if ALL its aspects have corresponding tasks (new or existing)
+   - If uncertain whether a message is fully addressed, don't clear it yet
+   - Return empty list [] if no messages to clear
+
+RULES:
+- ONLY mark tasks as completed if they're in the "PENDING TASKS" section above
+- DO NOT create tasks similar to those in "ALREADY COMPLETED" section
+- Each task = one Tavily search query
+- Focus on WHAT to search, not HOW to organize
+- ALWAYS include "source" field in new tasks
+- ALWAYS include "clear_messages" field in response (can be empty list [])
+</TODO_DRIVEN_REFLECTION>
+
 <TOPIC_FOCUS_DIRECTIVE>
 CRITICAL: All identified knowledge gaps and follow-up queries MUST directly relate to the original research topic "{research_topic}".
 1. The original research topic is the foundation - all knowledge gaps should be within its scope
@@ -1145,10 +1269,48 @@ Format the response as JSON with these keys:
 - "follow_up_query": A single query (<400 chars) targeting the missing info (MUST be "none" if research_complete is true)
 - "evaluation_notes": Brief overall commentary on strengths/weaknesses
 - "research_topic": Include the original research topic unchanged - this is REQUIRED for system processing
+- "todo_updates": Simple todo list updates (REQUIRED when todo context is provided):
+  {{
+    "mark_completed": ["task_1_1727812345", "task_2_1727812346"],
+    "cancel_tasks": ["task_3_1727812347"],
+    "add_tasks": [
+      {{
+        "description": "Research Silvio Savarese's work at Salesforce",
+        "rationale": "User requested focus on Salesforce work",
+        "source": "steering_message"
+      }},
+      {{
+        "description": "Find Silvio Savarese's recent publications 2023-2024",
+        "rationale": "Need recent work to complete profile",
+        "source": "knowledge_gap"
+      }}
+    ],
+    "clear_messages": [0]
+  }}
+  
+  CRITICAL NOTES:
+  • Task IDs are shown in the todo context as **[task_id]** - use the EXACT IDs
+  • mark_completed: Copy task IDs from "Active Steering Instructions" that were covered
+  • cancel_tasks: Copy task IDs from "Active Steering Instructions" that are no longer needed
+  • add_tasks: New tasks to add (description + rationale + source, system generates IDs)
+  • source: REQUIRED - "steering_message", "knowledge_gap", or "original_query"
+  • clear_messages: List of message indices that are fully addressed (e.g., [0, 1] or [])
+
+CRITICAL OUTPUT FORMAT:
+You MUST wrap your JSON response in <answer></answer> tags like this:
+<answer>
+{{
+  "research_complete": false,
+  "section_gaps": {{}},
+  ...
+}}
+</answer>
+
+Output ONLY the <answer> tags with valid JSON inside. No other text before or after.
 </FORMAT>
 
 <EXAMPLES>
-Example when more research is needed (complex topic):
+Example when more research is needed (complex topic with todo updates):
 {{
   "research_complete": false,
   "section_gaps": {{
@@ -1159,7 +1321,19 @@ Example when more research is needed (complex topic):
   "knowledge_gap": "Need benchmark data (e.g., latency, throughput) for major 5G modem models",
   "follow_up_query": "5G modem benchmarks latency throughput Qualcomm MediaTek Samsung 2023",
   "evaluation_notes": "Good overview of market trends but lacks critical technical benchmarking data.",
-  "research_topic": "{research_topic}"
+  "research_topic": "{research_topic}",
+  "todo_updates": {{
+    "mark_completed": ["task_001"],
+    "cancel_tasks": [],
+    "add_tasks": [
+      {{
+        "description": "Research 5G modem performance benchmarks and latency data",
+        "rationale": "Need quantitative performance metrics",
+        "source": "knowledge_gap"
+      }}
+    ],
+    "clear_messages": []
+  }}
 }}
 
 Example for technical architecture topic:
@@ -1174,7 +1348,19 @@ Example for technical architecture topic:
   "knowledge_gap": "Need concrete examples of how this architecture has been implemented in production systems",
   "follow_up_query": "agentic RAG production implementations case studies enterprise applications examples",
   "evaluation_notes": "Strong theoretical foundation but lacks practical implementation details and real-world validation.",
-  "research_topic": "{research_topic}"
+  "research_topic": "{research_topic}",
+  "todo_updates": {{
+    "mark_completed": ["task_002"],
+    "cancel_tasks": [],
+    "add_tasks": [
+      {{
+        "description": "Research production implementations and case studies",
+        "rationale": "Need concrete real-world examples",
+        "source": "knowledge_gap"
+      }}
+    ],
+    "clear_messages": []
+  }}
 }}
 
 Example when research is sufficient for a factual question:
@@ -1187,7 +1373,12 @@ Example when research is sufficient for a factual question:
   "knowledge_gap": "none",
   "follow_up_query": "none",
   "evaluation_notes": "The factual question has been clearly answered with information from Wikipedia and other reliable sources. Multiple sources confirm the same information.",
-  "research_topic": "{research_topic}"
+  "research_topic": "{research_topic}",
+  "todo_updates": {{
+    "mark_completed": ["task_003", "task_004"],
+    "cancel_tasks": ["task_005"],
+    "add_tasks": []
+  }}
 }}
 </EXAMPLES>
 
@@ -1698,6 +1889,8 @@ Explicitly acknowledge important limitations and remaining knowledge gaps:
    - Only include sources that directly contributed information to the final report
    - Format each reference consistently with ONE title and ONE URL
    - IMPORTANT: Failure to include a References section will result in an incomplete document
+   - CRITICAL: NEVER use generic citations like "Source X, as cited in the provided research summary" - always use the actual source title and URL from the research data
+   - Each reference MUST include the actual title and URL from the source material, not placeholder text
 
 5. Source Integration:
    - Embed citations directly after claims using [#] format

@@ -156,7 +156,7 @@ For proper source attribution in your answer:
 10. Every factual statement in your answer MUST be supported by a citation
 </CITATION_REQUIREMENTS>
 
-ANSWER FORMAT (Keep each section brief to stay under 300 words total):
+ANSWER FORMAT (Keep the core answer section excluding sources brief to stay under 300 words total):
 1. Direct Answer: [The specific answer to the question]
 2. Confidence: [HIGH/MEDIUM/LOW]
 3. Supporting Evidence: [Brief summary of the key evidence supporting this answer]
@@ -306,7 +306,8 @@ Provide the **Direct Answer:** [Clear, concise answer to the original question w
 [1] First Author et al. (year) Title. [URL]
 [2] First Author et al. (year) Title. [URL]
 etc.
-IMPORTANT: Use the exact titles, authors, years, and URLs from the "AVAILABLE SOURCES FOR CITATION" section above. For academic sources, use the format "First Author et al. (year) Title". For non-academic sources without author/year, use "Title".]
+IMPORTANT: Use the exact titles, authors, years, and URLs from the "AVAILABLE SOURCES FOR CITATION" section above. For academic sources, use the format "First Author et al. (year) Title". For non-academic sources without author/year, use "Title".
+CRITICAL: NEVER use generic citations like "Source X, as cited in the provided research summary" - always use the actual source information provided in the AVAILABLE SOURCES section.]
 
 Keep your answer focused specifically on what was asked. Do not include unnecessary background information or speculation. Prioritize brevity and essential facts to stay within the 300-word limit.
 
