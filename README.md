@@ -1,4 +1,5 @@
 # 🔬 Enterprise Deep Research
+**Steerable Multi-Agent Deep Research for Enterprise Analytics**
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![HF Dataset](https://img.shields.io/badge/🤗%20Hugging%20Face-EDR--200%20Dataset-blue)](https://huggingface.co/datasets/Salesforce/EDR-200)
