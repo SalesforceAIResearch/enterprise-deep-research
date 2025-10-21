@@ -20,9 +20,9 @@ These components enable automated report generation, real-time streaming, and se
 
 ## 🎥 Demos & Features
 
-| Web Application | Slack Integration |
+| EDR: Web Application | EDR: Slack Integration |
 |----------------|-------------------|
-| [![Enterprise Research Demo](https://img.youtube.com/vi/gq43g5--dJQ/maxresdefault.jpg)](https://www.youtube.com/watch?v=gq43g5--dJQ) | [![Slack Integration Demo](https://img.youtube.com/vi/8tB375P4mgQ/maxresdefault.jpg)](https://www.youtube.com/watch?v=8tB375P4mgQ) |
+| [![EDR: Web Application](https://img.youtube.com/vi/gq43g5--dJQ/0.jpg)](https://www.youtube.com/watch?v=gq43g5--dJQ) | [![EDR: Slack Integration](https://img.youtube.com/vi/8tB375P4mgQ/0.jpg)](https://www.youtube.com/watch?v=8tB375P4mgQ) |
 
 **Key Capabilities**: Multi-provider LLM support • Real-time streaming • Document analysis • Citation management • Parallel processing • Specialized benchmarking • Human-in-the-loop steering
 
