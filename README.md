@@ -22,11 +22,12 @@
 
 
 We present **Enterprise Deep Research (EDR)**, a multi-agent system that integrate: 
-- Master Planning Agent for adaptive query decomposition, 
-- Four specialized search agents (General, Academic, GitHub, LinkedIn), 
-- Extensible MCP-based tool ecosystem supporting NL2SQL, file analysis, and enterprise workflows, 
-- Visualization Agent for data-driven insights, and 
+- Master Planning Agent for adaptive query decomposition.
+- Four specialized search agents (General, Academic, GitHub, LinkedIn).
+- Extensible MCP-based tool ecosystem supporting NL2SQL, file analysis, and enterprise workflows.
+- Visualization Agent for data-driven insights. 
 - Reflection mechanism that detects knowledge gaps and updates research direction with optional human-in-the-loop steering guidance. 
+- Real-time steering commands for continuous research refinement.
 
 > [!Note]
 > These components enable automated report generation, real-time streaming, and seamless enterprise deployment, as validated on internal datasets.
@@ -93,21 +94,13 @@ cd ai-research-assistant && npm install && npm run build && cd ..
 
 ### Running the Application
 
-**Full Stack (Recommended):**
-```bash
-# Terminal 1 - Backend
-python -m uvicorn app:app --host 0.0.0.0 --port 8000
-
-# Terminal 2 - Frontend
-cd ai-research-assistant && npm start
-```
-
-**Backend Only:**
+**Full Stack (Recommended) - Single Command:**
 ```bash
 python -m uvicorn app:app --host 0.0.0.0 --port 8000
 ```
+The application will serve both the backend API and pre-built frontend at [http://localhost:8000](http://localhost:8000)
 
-**Access**: Full Stack at [http://localhost:3000](http://localhost:3000) • Backend at [http://localhost:8000](http://localhost:8000)
+**Backend API Documentation**: [http://localhost:8000/docs](http://localhost:8000/docs)
 
 ## 💻 Usage
 
