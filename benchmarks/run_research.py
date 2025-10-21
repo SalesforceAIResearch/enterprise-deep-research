@@ -5,10 +5,9 @@ This script bypasses the UI and directly calls the backend to get a markdown rep
 
 Usage:
     python run_research.py "Your research query here"
-    python run_research.py "AI trends 2024" --max-loops 5 --disable-visualizations
     python run_research.py "Climate change" --extra-effort --provider openai --model gpt-4o
     python run_research.py "Who is the current CEO of Tesla?" --qa-mode
-    python run_research.py "What is machine learning?" --benchmark-mode --provider anthropic
+    python run_research.py "AI research" --enable-steering --steering-message "Focus on practical applications"
 """
 
 import asyncio
@@ -20,6 +19,7 @@ from dotenv import load_dotenv
 import json
 from datetime import datetime
 import uuid
+from typing import List
 
 # Add the deep-research directory to the Python path
 script_dir = Path(__file__).parent
@@ -45,6 +45,8 @@ async def run_research_sync(
     model: str = None,
     output_file: str = None,
     file_path: str = None,
+    steering_enabled: bool = False,
+    steering_messages: List[str] = None,
 ):
     """
     Run the research agent with specified parameters.
@@ -61,6 +63,8 @@ async def run_research_sync(
         model: LLM model name
         output_file: Optional file path to save the result
         file_path: Optional file path to analyze and include in research
+        steering_enabled: Whether to enable steering for this research session
+        steering_messages: List of steering messages to apply during research
 
     Returns:
         The research result (markdown or JSON)
@@ -76,6 +80,11 @@ async def run_research_sync(
     print(f"🏃 Minimum effort: {minimum_effort}")
     print(f"❓ QA mode: {qa_mode}")
     print(f"🧪 Benchmark mode: {benchmark_mode}")
+    print(f"🎯 Steering enabled: {steering_enabled}")
+    if steering_enabled and steering_messages:
+        print(f"📝 Steering messages: {len(steering_messages)}")
+        for i, msg in enumerate(steering_messages, 1):
+            print(f"   {i}. {msg}")
 
     # Set up provider and model with defaults
     if not provider:
@@ -176,6 +185,7 @@ async def run_research_sync(
 
     # Set environment variables for configuration
     original_max_loops = os.environ.get("MAX_WEB_RESEARCH_LOOPS")
+    # LangSmith is optional - only used if LANGCHAIN_API_KEY is configured
     original_langsmith_project = os.environ.get("LANGCHAIN_PROJECT")
 
     os.environ["MAX_WEB_RESEARCH_LOOPS"] = str(max_web_search_loops)
@@ -189,7 +199,7 @@ async def run_research_sync(
         fresh_graph = create_graph()
 
         # Generate unique run reference
-        run_ref = f"rqa_test_{provider}_{model}_{max_web_search_loops}_test"
+        run_ref = f"test_{provider}_{model}_{max_web_search_loops}"
 
         # Create graph configuration
         graph_config = {
@@ -242,7 +252,29 @@ async def run_research_sync(
             uploaded_knowledge=uploaded_data_content,
             uploaded_files=uploaded_files,
             analyzed_files=analyzed_files,
+            steering_enabled=steering_enabled,  # Enable steering
         )
+
+        # Apply steering messages if provided
+        if steering_enabled and steering_messages:
+            print(f"\n🎯 Applying {len(steering_messages)} steering messages...")
+            for i, message in enumerate(steering_messages, 1):
+                print(f"   {i}. Processing: '{message}'")
+                try:
+                    result = await initial_state.add_steering_message(message)
+                    print(f"      → Created {result['pending_tasks']} tasks")
+                except Exception as e:
+                    print(f"      ❌ Error: {e}")
+
+            # Show the steering plan
+            if initial_state.steering_todo:
+                print(f"\n📋 Current Steering Plan:")
+                plan_lines = initial_state.get_steering_plan().split("\n")
+                for line in plan_lines[:15]:  # Show first 15 lines
+                    print(f"   {line}")
+                if len(plan_lines) > 15:
+                    print(f"   ... ({len(plan_lines) - 15} more lines)")
+                print()
 
         print(f"\n{'='*80}")
         print("🚀 Starting research execution...")
@@ -461,12 +493,11 @@ async def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python run_research.py "What are the latest AI trends in 2024?" --disable-visualizations
   python run_research.py "Climate change solutions" --max-loops 15 --extra-effort
-  python run_research.py "Quantum computing" --disable-visualizations --provider anthropic
   python run_research.py "Space exploration" --minimum-effort --model gpt-4o
   python run_research.py "Who is the current president of France?" --qa-mode
   python run_research.py "What is quantum entanglement?" --benchmark-mode --provider anthropic
+  python run_research.py "AI research" --enable-steering --steering-message "Focus on ethics" --steering-message "Include recent papers"
         """,
     )
 
@@ -522,7 +553,7 @@ Examples:
         "--output",
         "-o",
         help="Output file path to save the result",
-        default="/Users/akshara.prabhakar/Documents/deep_research/benchmarks/deep_research_bench/data/test_data/raw_data/sfr_auto_report.json",
+        default="research_result.json",
     )
 
     # File analysis configuration
@@ -531,6 +562,18 @@ Examples:
         "-f",
         help="File path to analyze and include in research",
         type=str,
+    )
+
+    # Steering configuration (disabled by default for benchmarks)
+    parser.add_argument(
+        "--enable-steering",
+        action="store_true",
+        help="Enable steering/task management (disabled by default for benchmarks)",
+    )
+    parser.add_argument(
+        "--steering-message",
+        action="append",
+        help="Add a steering message (can be used multiple times)",
     )
 
     args = parser.parse_args()
@@ -582,6 +625,8 @@ Examples:
             model=args.model,
             output_file=args.output,
             file_path=args.file,
+            steering_enabled=args.enable_steering,
+            steering_messages=args.steering_message if args.steering_message else None,
         )
 
         if result:

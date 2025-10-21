@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Multi-threaded research script that processes queries concurrently.
+Multi-threaded research script for benchmarking.
 """
 
 import asyncio
@@ -33,10 +33,13 @@ script_dir = Path(__file__).parent
 deep_research_dir = script_dir.parent
 sys.path.insert(0, str(deep_research_dir))
 
-# Load environment variables from the correct .env file
+# Load environment variables
 env_file_path = deep_research_dir / ".env"
 logger.info(f"Loading environment from: {env_file_path}")
 load_dotenv(dotenv_path=env_file_path)
+
+# Import HTML-to-markdown converter
+from src.graph import generate_markdown_report
 
 STATS_LOCK = threading.Lock()
 GLOBAL_STATS = {
@@ -48,6 +51,94 @@ GLOBAL_STATS = {
 }
 
 
+# ==================== Trajectory Recorder ====================
+class ResearchTrajectoryRecorder:
+    """Records structured research trajectory with OpenAI-format tool calls"""
+
+    def __init__(self):
+        self.query = ""
+        self.iterations = []
+        self.current_iteration = None
+        self.tool_call_counter = 0
+        self.previous_sources = set()
+
+    def start_iteration(self, iteration_number: int):
+        """Start a new research iteration"""
+        self.current_iteration = {
+            "iteration": iteration_number,
+            "timestamp_start": datetime.now().isoformat(),
+            "tool_calls": [],  # OpenAI format tool calls
+            "running_summary": "",
+            "num_sources": 0,
+        }
+
+    def end_iteration(self):
+        """End the current iteration and save it"""
+        if self.current_iteration:
+            self.current_iteration["timestamp_end"] = datetime.now().isoformat()
+            self.iterations.append(self.current_iteration)
+            self.current_iteration = None
+
+    def add_tool_call(self, function_name: str, arguments: Dict, result: any):
+        """Add a tool call in OpenAI format"""
+        if self.current_iteration:
+            self.tool_call_counter += 1
+            tool_call = {
+                "id": f"call_{self.tool_call_counter}",
+                "type": "function",
+                "function": {"name": function_name, "arguments": arguments},
+                "result": result,
+                "timestamp": datetime.now().isoformat(),
+            }
+            self.current_iteration["tool_calls"].append(tool_call)
+
+    def record_running_summary(self, summary):
+        """Record the running summary after this iteration (with HTML converted to markdown)"""
+        if self.current_iteration:
+            # Handle case where summary might be a list (convert to string)
+            if isinstance(summary, list):
+                summary = "\n\n".join(str(s) for s in summary)
+            elif not isinstance(summary, str):
+                summary = str(summary)
+
+            # Convert HTML to clean markdown using the existing graph.py function
+            cleaned_summary = generate_markdown_report(summary)
+            self.current_iteration["running_summary"] = cleaned_summary
+
+    def record_sources(self, sources: List[str]):
+        """Record number of NEW sources gathered in this iteration"""
+        if self.current_iteration:
+            current_sources = set(sources)
+            new_sources = current_sources - self.previous_sources
+            self.current_iteration["num_sources"] = len(new_sources)
+            self.previous_sources = current_sources
+
+    def get_summary(self, total_unique_sources: int = 0) -> Dict:
+        """Get a summary of the trajectory"""
+        return {
+            "query": self.query,
+            "num_iterations": len(self.iterations),
+            "total_num_sources": total_unique_sources,
+            "iterations_summary": [
+                {
+                    "iteration": it["iteration"],
+                    "num_tool_calls": len(it.get("tool_calls", [])),
+                    "num_sources": it.get("num_sources", 0),
+                }
+                for it in self.iterations
+            ],
+        }
+
+    def to_dict(self, total_unique_sources: int = 0) -> Dict:
+        """Convert trajectory to dictionary for JSON serialization"""
+        return {
+            "query": self.query,
+            "summary": self.get_summary(total_unique_sources),
+            "iterations": self.iterations,
+        }
+
+
+# ==================== Benchmark Dataset Managers ====================
 class BenchmarkDatasetManager(ABC):
     """Abstract base class for managing different benchmark datasets."""
 
@@ -78,12 +169,12 @@ class BenchmarkDatasetManager(ABC):
 
     @abstractmethod
     def get_output_filename(self, task_id: str) -> str:
-        """Get the output filename for a task."""
+        """Get the output filename for a task result."""
         pass
 
 
 class DRBDatasetManager(BenchmarkDatasetManager):
-    """Dataset manager for Deep Research Bench (DRB)."""
+    """Manager for Deep Research Benchmark (DRB) dataset."""
 
     def load_queries(
         self,
@@ -91,7 +182,7 @@ class DRBDatasetManager(BenchmarkDatasetManager):
         task_ids: Optional[List[int]] = None,
         limit: Optional[int] = None,
     ) -> List[Dict]:
-        """Load queries from JSONL file."""
+        """Load queries from DRB JSONL file."""
         queries = []
         try:
             with open(file_path, "r", encoding="utf-8") as f:
@@ -130,96 +221,27 @@ class DRBDatasetManager(BenchmarkDatasetManager):
 
     def get_processing_config(self) -> Dict:
         return {
-            "max_loops_default": 5,
-            "benchmark_mode": False,
+            "max_loops": 5,
+            "extra_effort": False,
             "qa_mode": False,
-            "visualization_disabled": True,
+            "benchmark_mode": False,
         }
 
     def format_result(self, task_data: Dict, result_data: Dict) -> Dict:
-        """Format result for DRB - keep existing structure."""
-        return result_data
+        """Format result for DRB."""
+        return {
+            "id": result_data["id"],
+            "prompt": result_data["query"],  # DRB uses "prompt" not "query"
+            "article": result_data["article"],
+            "metadata": {
+                "timing": result_data["timing"],
+                "debug_info": result_data["debug_info"],
+                "content_stats": result_data["content_stats"],
+            },
+        }
 
     def get_output_filename(self, task_id: str) -> str:
         return f"{task_id}.json"
-
-
-class RQADatasetManager(BenchmarkDatasetManager):
-    """Dataset manager for ResearchQA (RQA)."""
-
-    def load_queries(
-        self,
-        file_path: str,
-        task_ids: Optional[List[int]] = None,
-        limit: Optional[int] = None,
-    ) -> List[Dict]:
-        """Load queries from JSON file (not JSONL)."""
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-
-            logger.info(f"📋 Loaded {len(data)} queries from {file_path}")
-
-            # Convert to list format with indices if needed
-            queries = []
-            for i, item in enumerate(data):
-                # Add index if not present
-                if "index" not in item:
-                    item["index"] = i
-
-                # For RQA, append word count instruction to the query
-                if "query" in item:
-                    original_query = item["query"]
-                    if not original_query.endswith(
-                        "\nPlease answer in around 240-260 words."
-                    ):
-                        item["query"] = (
-                            original_query + "\nPlease answer in around 240-260 words."
-                        )
-
-                queries.append(item)
-
-            # Filter by task IDs if specified (using indices)
-            if task_ids:
-                queries = [q for i, q in enumerate(queries) if i in task_ids]
-                logger.info(f"🎯 Filtered to {len(queries)} specific tasks: {task_ids}")
-
-            # Apply limit if specified
-            if limit:
-                queries = queries[:limit]
-                logger.info(f"🔢 Limited to first {len(queries)} tasks")
-
-            return queries
-
-        except FileNotFoundError:
-            logger.error(f"Query file not found: {file_path}")
-            raise
-        except Exception as e:
-            logger.error(f"Error loading queries: {e}")
-            raise
-
-    def get_query_field(self) -> str:
-        return "query"
-
-    def get_processing_config(self) -> Dict:
-        return {
-            "max_loops_default": 2,
-            "benchmark_mode": True,
-            "qa_mode": False,
-            "visualization_disabled": True,
-        }
-
-    def format_result(self, task_data: Dict, result_data: Dict) -> Dict:
-        """Format result for RQA - extract answer field with metadata."""
-        answer = result_data.get("article", "")
-        task_id = result_data.get(
-            "id", task_data.get("id", task_data.get("index", "unknown"))
-        )
-
-        return {"id": task_id, "answer": answer, "answer_length": len(answer.split())}
-
-    def get_output_filename(self, task_id: str) -> str:
-        return f"rqa_{task_id}.json"
 
 
 class DeepConsultDatasetManager(BenchmarkDatasetManager):
@@ -240,7 +262,11 @@ class DeepConsultDatasetManager(BenchmarkDatasetManager):
                 reader = csv.DictReader(f)
                 for i, row in enumerate(reader):
                     # Create query dict with index as ID
-                    query_data = {"id": i, "index": i, "query": row["query"].strip()}
+                    # Ensure query is a string
+                    query = row["query"]
+                    if isinstance(query, list):
+                        query = " ".join(str(item) for item in query)
+                    query_data = {"id": i, "index": i, "query": str(query).strip()}
                     queries.append(query_data)
 
             logger.info(f"📋 Loaded {len(queries)} queries from {file_path}")
@@ -269,8 +295,8 @@ class DeepConsultDatasetManager(BenchmarkDatasetManager):
 
     def get_processing_config(self) -> Dict:
         return {
-            "max_loops_default": 10,
-            "benchmark_mode": False,
+            "max_loops_default": 10,  # Max 10 loops as requested
+            "benchmark_mode": False,  # Regular mode as requested
             "qa_mode": False,
             "visualization_disabled": True,
         }
@@ -283,171 +309,83 @@ class DeepConsultDatasetManager(BenchmarkDatasetManager):
         return f"deepconsult_{task_id}.json"
 
 
-def get_dataset_manager(benchmark_type: str) -> BenchmarkDatasetManager:
-    """Factory function to get the appropriate dataset manager."""
-    if benchmark_type == "drb":
-        return DRBDatasetManager()
-    elif benchmark_type == "rqa":
-        return RQADatasetManager()
-    elif benchmark_type == "deepconsult":
-        return DeepConsultDatasetManager()
-    else:
-        raise ValueError(f"Unknown benchmark type: {benchmark_type}")
-
-
-def get_default_file_paths(benchmark_type: str) -> Dict[str, str]:
-    """Get default file paths for different benchmarks."""
-    base_dir = Path(__file__).parent.parent.parent
-
-    if benchmark_type == "drb":
-        return {
-            "queries_file": str(
-                base_dir
-                / "benchmarks"
-                / "deep_research_bench"
-                / "data"
-                / "prompt_data"
-                / "query.jsonl"
-            ),
-            "output_dir": str(
-                base_dir
-                / "benchmarks"
-                / "deep_research_bench"
-                / "results"
-                / "edr_reports_gemini"
-            ),
-        }
-    elif benchmark_type == "rqa":
-        return {
-            "queries_file": str(
-                base_dir / "benchmarks" / "ResearchQA" / "researchqa.json"
-            ),
-            "output_dir": str(
-                base_dir
-                / "benchmarks"
-                / "ResearchQA"
-                / "results"
-                / "edr_reports_gemini"
-            ),
-        }
-    elif benchmark_type == "deepconsult":
-        return {
-            "queries_file": "/Users/akshara.prabhakar/Documents/deep_research/benchmarks/ydc-deep-research-evals/datasets/DeepConsult/queries.csv",
-            "output_dir": str(
-                base_dir
-                / "benchmarks"
-                / "ydc-deep-research-evals"
-                / "results"
-                / "edr_reports_gemini"
-            ),
-        }
-    else:
-        raise ValueError(f"Unknown benchmark type: {benchmark_type}")
-
-
-class TaskManager:
-    """Manages concurrent research tasks with resource limiting."""
-
-    def __init__(self, max_workers: int = 4, rate_limit_delay: float = 1.0):
-        self.max_workers = max_workers
-        self.rate_limit_delay = rate_limit_delay
-        self.semaphore = asyncio.Semaphore(max_workers)
-        self.last_request_time = 0
-        self.request_lock = asyncio.Lock()
-
-    async def rate_limit(self):
-        """Apply rate limiting to prevent API overload."""
-        async with self.request_lock:
-            current_time = time.time()
-            time_since_last = current_time - self.last_request_time
-            if time_since_last < self.rate_limit_delay:
-                sleep_time = self.rate_limit_delay - time_since_last
-                logger.debug(f"Rate limiting: sleeping for {sleep_time:.2f}s")
-                await asyncio.sleep(sleep_time)
-            self.last_request_time = time.time()
-
-    async def exponential_backoff_retry(self, func, max_retries=3):
-        """Retry function with exponential backoff for rate limit errors."""
-        for attempt in range(max_retries):
-            try:
-                return await func()
-            except Exception as e:
-                if "rate limit" in str(e).lower() or "429" in str(e):
-                    if attempt < max_retries - 1:
-                        backoff_time = (2**attempt) * self.rate_limit_delay
-                        logger.warning(
-                            f"Rate limit hit, backing off for {backoff_time:.2f}s (attempt {attempt + 1}/{max_retries})"
-                        )
-                        await asyncio.sleep(backoff_time)
-                        continue
-                raise e
-
-
-async def run_single_research_task(
+# ==================== Task Execution ====================
+async def run_single_research_task_with_trajectory(
     task_data: Dict,
     dataset_manager: BenchmarkDatasetManager,
-    max_web_search_loops: int = 1,
-    visualization_disabled: bool = True,
-    extra_effort: bool = False,
-    minimum_effort: bool = False,
-    benchmark_mode: bool = False,
-    qa_mode: bool = False,
+    output_dir: str,
     provider: str = None,
     model: str = None,
-    output_dir: str = None,
-    task_manager: TaskManager = None,
+    max_web_search_loops: int = 5,
+    extra_effort: bool = False,
+    minimum_effort: bool = False,
+    qa_mode: bool = False,
+    benchmark_mode: bool = False,
+    visualization_disabled: bool = True,
+    task_manager=None,
+    collect_trajectory: bool = False,
 ) -> Tuple[bool, Dict, str]:
     """
-    Run a single research task.
+    Run a single research task with optional trajectory capture.
 
-    Returns:
-        Tuple of (success: bool, result: Dict, error_message: str)
+    Args:
+        collect_trajectory: If True, collect detailed trajectory data (disabled by default for benchmarks)
+
+    Returns: (success: bool, result: Dict, error_message: str)
     """
-    # Get task ID and query using dataset manager
     task_id = task_data.get("id", task_data.get("index", "unknown"))
     query_field = dataset_manager.get_query_field()
     query = task_data[query_field]
 
-    # Start timing for this task
+    # Ensure query is a string (handle cases where it might be a list)
+    if isinstance(query, list):
+        query = " ".join(str(item) for item in query)
+    elif not isinstance(query, str):
+        query = str(query)
+
     task_start_time = datetime.now()
 
-    # Apply rate limiting
     if task_manager:
         await task_manager.rate_limit()
 
-    logger.info(f"[Task {task_id}]")
+    log_msg = f"[Task {task_id}] Starting"
+    if collect_trajectory:
+        log_msg += " with trajectory capture"
+    logger.info(log_msg)
 
-    # Update global stats
     with STATS_LOCK:
         GLOBAL_STATS["tasks_started"] += 1
         GLOBAL_STATS["tasks_in_progress"] += 1
 
+    # Initialize trajectory recorder only if requested
+    recorder = None
+    if collect_trajectory:
+        recorder = ResearchTrajectoryRecorder()
+        recorder.query = query
+
     try:
-        # Import here to avoid import conflicts in concurrent execution
         from src.state import SummaryState
         from src.graph import create_graph
 
-        # Set up provider and model with defaults
         if not provider:
             provider = os.environ.get("LLM_PROVIDER", "openai")
         if not model:
             model = os.environ.get("LLM_MODEL", "o3-mini")
 
-        # Create a fresh graph for this task (each task gets its own instance)
+        # Set environment variables (match working version)
+        os.environ["MAX_WEB_RESEARCH_LOOPS"] = str(max_web_search_loops)
+        os.environ["LLM_PROVIDER"] = provider
+        os.environ["LLM_MODEL"] = model
+
         fresh_graph = create_graph()
 
-        # Determine benchmark type from dataset manager
-        if isinstance(dataset_manager, RQADatasetManager):
-            benchmark_type = "RQA"
-        elif isinstance(dataset_manager, DeepConsultDatasetManager):
+        if isinstance(dataset_manager, DeepConsultDatasetManager):
             benchmark_type = "DEEPCONSULT"
         else:
             benchmark_type = "DRB"
 
-        # Generate unique run reference for this task
         run_ref = f"EVAL_{benchmark_type}_{task_id}"
 
-        # Create graph configuration
         graph_config = {
             "configurable": {
                 "llm_provider": provider,
@@ -462,6 +400,7 @@ async def run_single_research_task(
                 f"loops:{max_web_search_loops}",
                 f"task_id:{task_id}",
                 f"benchmark:{benchmark_type}",
+                "eval_trajectory",
             ],
             "metadata": {
                 "run_ref": run_ref,
@@ -473,7 +412,6 @@ async def run_single_research_task(
             },
         }
 
-        # Create initial state as SummaryState object
         initial_state = SummaryState(
             research_topic=query,
             search_query=query,
@@ -497,59 +435,275 @@ async def run_single_research_task(
             llm_model=model,
             uploaded_knowledge=None,
             uploaded_files=[],
-            analyzed_files=[],
+            uploaded_images=[],
+            current_node=None,
+            previous_node=None,
+            steering_enabled=False,
+            steering_feedback=None,
+            steering_todo=None,
+            steering_todo_visible=False,
         )
 
-        logger.info(f"[Task {task_id}] Executing research graph...")
-
-        # Time the graph execution
         graph_start_time = datetime.now()
+        logger.info(f"[Task {task_id}] Starting graph execution...")
 
-        # Run the graph using async method
-        result = await fresh_graph.ainvoke(initial_state, config=graph_config)
+        result = None
+        last_started_iteration = -1
+        previous_state = {}
+
+        # Stream through graph and capture trajectory (same as working version)
+        async for state_update in fresh_graph.astream(initial_state, graph_config):
+            # state_update is a dict with node name as key and state changes as value
+            for node_name, state_data in state_update.items():
+                # Skip if not actual state data
+                if not isinstance(state_data, dict):
+                    continue
+
+                # Get current research loop count
+                current_loop = state_data.get("research_loop_count", 0)
+
+                # Start a new iteration if not already started for this loop
+                # (Don't end previous iteration here - let reflection node handle it)
+                if recorder and (
+                    recorder.current_iteration is None
+                    and current_loop != last_started_iteration
+                ):
+                    recorder.start_iteration(current_loop)
+                    last_started_iteration = current_loop
+                    logger.info(f"[Task {task_id}] Started iteration {current_loop}")
+
+                # Capture query decomposition from research_plan
+                research_plan = state_data.get("research_plan")
+                if research_plan and research_plan != previous_state.get(
+                    "research_plan"
+                ):
+                    if recorder and recorder.current_iteration is not None:
+                        # Use research_topic for initial query, search_query for follow-ups
+                        query = state_data.get("search_query") or state_data.get(
+                            "research_topic", ""
+                        )
+                        recorder.add_tool_call(
+                            function_name="decompose_query",
+                            arguments={
+                                "query": query,
+                                "knowledge_gap": state_data.get("knowledge_gap", ""),
+                            },
+                            result=research_plan,
+                        )
+                        logger.info(
+                            f"[Task {task_id}] 🔧 Captured decompose_query tool call"
+                        )
+
+                # Capture search tool calls from web_research_results
+                web_results = state_data.get("web_research_results", [])
+                prev_web_results = previous_state.get("web_research_results", [])
+                if web_results and len(web_results) > len(prev_web_results):
+                    if recorder and recorder.current_iteration is not None:
+                        # Capture only NEW search results
+                        new_results = web_results[len(prev_web_results) :]
+                        for result in new_results:
+                            query = result.get("query", "")
+                            tool_name = result.get("tool", "general_search")
+                            sources = result.get("sources", [])
+
+                            recorder.add_tool_call(
+                                function_name=tool_name,
+                                arguments={"query": query},
+                                result={
+                                    "num_sources": len(sources),
+                                    "sources": sources,
+                                },
+                            )
+                        logger.info(
+                            f"[Task {task_id}] 🔧 Captured {len(new_results)} search tool calls"
+                        )
+
+                # Capture generate_report (synthesis) when running_summary changes
+                running_summary = state_data.get("running_summary", "")
+                prev_running_summary = previous_state.get("running_summary", "")
+                if running_summary and running_summary != prev_running_summary:
+                    if recorder and recorder.current_iteration is not None:
+                        # Capture the synthesis step as a tool call
+                        recorder.add_tool_call(
+                            function_name="generate_report",
+                            arguments={
+                                "existing_summary_length": len(prev_running_summary),
+                                "new_research_results": len(web_results),
+                                "knowledge_gap": state_data.get("knowledge_gap", ""),
+                            },
+                            result={
+                                "updated_summary_length": len(running_summary),
+                                "num_sources_cited": len(
+                                    state_data.get("source_citations", {})
+                                ),
+                            },
+                        )
+                        logger.info(
+                            f"[Task {task_id}] 📝 Captured generate_report synthesis call"
+                        )
+
+                    # Also record in running_summary field
+                    if recorder:
+                        recorder.record_running_summary(running_summary)
+
+                # Capture finalize_report when final_summary is created
+                final_summary = state_data.get("final_summary", "")
+                prev_final_summary = previous_state.get("final_summary", "")
+                if final_summary and not prev_final_summary:
+                    if recorder and recorder.current_iteration is not None:
+                        # Capture the finalization step
+                        recorder.add_tool_call(
+                            function_name="finalize_report",
+                            arguments={
+                                "running_summary_length": len(running_summary),
+                                "total_sources": len(
+                                    state_data.get("sources_gathered", [])
+                                ),
+                                "has_visualizations": len(
+                                    state_data.get("visualizations", [])
+                                )
+                                > 0,
+                            },
+                            result={
+                                "final_report_length": len(final_summary),
+                                "formatted_sources": len(
+                                    state_data.get("source_citations", {})
+                                ),
+                            },
+                        )
+                        logger.info(
+                            f"[Task {task_id}] 📄 Captured finalize_report formatting call"
+                        )
+
+                # Record sources when they change - compare actual content for accuracy
+                sources = state_data.get("sources_gathered", [])
+                previous_sources = previous_state.get("sources_gathered", [])
+
+                if sources:
+                    # Convert to sets for accurate comparison (handles additions AND replacements)
+                    current_sources_set = set(sources)
+                    previous_sources_set = (
+                        set(previous_sources) if previous_sources else set()
+                    )
+
+                    # Only record if the actual source content changed
+                    if current_sources_set != previous_sources_set:
+                        new_sources = current_sources_set - previous_sources_set
+                        logger.info(
+                            f"[Task {task_id}] Iter {current_loop}: "
+                            f"🔎 Sources updated: +{len(new_sources)} new (total: {len(current_sources_set)})"
+                        )
+                        if recorder:
+                            recorder.record_sources(sources)
+                    else:
+                        # Log when sources exist but haven't changed (for debugging)
+                        logger.debug(
+                            f"[Task {task_id}] Iter {current_loop}: "
+                            f"Sources unchanged ({len(current_sources_set)} total)"
+                        )
+
+                # Check for reflection completion (capture and end iteration)
+                if (
+                    node_name == "reflect_on_research"
+                    or node_name == "reflect_on_report"
+                    or "reflect" in node_name.lower()
+                ):
+                    if recorder and recorder.current_iteration is not None:
+                        research_complete = state_data.get("research_complete", False)
+                        logger.info(f"[Task {task_id}] 🤔 Reflection completed")
+                        logger.info(
+                            f"[Task {task_id}]    Research complete: {research_complete}"
+                        )
+
+                        # Capture reflection output as a tool call
+                        reflection_result = {
+                            "research_complete": research_complete,
+                            "knowledge_gap": state_data.get("knowledge_gap", ""),
+                            "follow_up_query": state_data.get("search_query", ""),
+                            "section_gaps": state_data.get("section_gaps", {}),
+                            "priority_section": state_data.get("priority_section", ""),
+                            "evaluation_notes": state_data.get("evaluation_notes", ""),
+                            "research_topic": state_data.get("research_topic", ""),
+                        }
+
+                        # Add todo_updates if present (from steering system)
+                        if "todo_updates" in state_data:
+                            reflection_result["todo_updates"] = state_data[
+                                "todo_updates"
+                            ]
+
+                        # Add reflection as tool call with empty arguments (OpenAI format)
+                        recorder.add_tool_call(
+                            function_name="reflect_on_report",
+                            arguments={},  # Empty args as requested
+                            result=reflection_result,
+                        )
+                        logger.info(
+                            f"[Task {task_id}]    ✅ Captured reflection tool call"
+                        )
+
+                        # Log iteration summary before ending
+                        if recorder:
+                            iter_num = recorder.current_iteration.get("iteration", "?")
+                            iter_sources = recorder.current_iteration.get(
+                                "num_sources", 0
+                            )
+                            iter_tools = len(
+                                recorder.current_iteration.get("tool_calls", [])
+                            )
+                            logger.info(
+                                f"[Task {task_id}] 🏁 Ending iteration {iter_num} (after reflection): "
+                                f"{iter_tools} tool_calls, {iter_sources} new sources"
+                            )
+                            recorder.end_iteration()
+                        # DON'T start the next iteration here - let the loop count change handle it
+
+                # Update previous state
+                previous_state = state_data.copy()
+
+                # Store final result
+                result = state_data
+
+        # End final iteration if still active
+        if recorder and recorder.current_iteration is not None:
+            recorder.end_iteration()
 
         graph_end_time = datetime.now()
         graph_duration = graph_end_time - graph_start_time
 
-        # Extract the result based on benchmark mode
+        if not result:
+            raise Exception("Graph execution produced no final result")
+
+        logger.info(
+            f"[Task {task_id}] Graph completed in {graph_duration.total_seconds():.2f}s"
+        )
+
+        # Extract final content (match working version logic)
         final_summary = result.get("running_summary", "No summary generated")
 
-        # Handle different modes appropriately
+        # Handle case where summary might be a list (convert to string)
+        if isinstance(final_summary, list):
+            final_summary = "\n\n".join(str(s) for s in final_summary)
+        elif not isinstance(final_summary, str):
+            final_summary = str(final_summary)
+
         if qa_mode or benchmark_mode:
-            # For QA and benchmark modes, use the benchmark_result if available
             benchmark_result = result.get("benchmark_result", {})
-            if benchmark_result:
-                # Use the full_response (which includes citations for benchmark mode)
-                final_content = benchmark_result.get("full_response", "")
-                if not final_content:
-                    # Fallback to structured answer if full_response is not available
-                    answer = benchmark_result.get("answer", "")
-                    confidence = benchmark_result.get("confidence_level", "")
-                    evidence = benchmark_result.get("evidence", "")
-                    limitations = benchmark_result.get("limitations", "")
-
-                    final_content = f"**Answer:** {answer}\n\n"
-                    if confidence:
-                        final_content += f"**Confidence:** {confidence}\n\n"
-                    if evidence:
-                        final_content += f"**Supporting Evidence:** {evidence}\n\n"
-                    if limitations:
-                        final_content += f"**Limitations:** {limitations}\n\n"
-
-                mode_name = "benchmark mode" if benchmark_mode else "QA mode"
-                logger.info(
-                    f"[Task {task_id}] Using {mode_name} result with {'citations' if benchmark_mode else 'basic sources'}"
-                )
-            else:
-                final_content = final_summary
-                logger.info(
-                    f"[Task {task_id}] No benchmark result available, using running summary"
-                )
+            final_content = (
+                benchmark_result.get("full_response", final_summary)
+                if benchmark_result
+                else final_summary
+            )
         else:
-            # Regular mode - prioritize markdown_report if available
             markdown_report = result.get("markdown_report", "")
+            # Handle if markdown_report is also a list or other non-string type
+            if isinstance(markdown_report, list):
+                markdown_report = "\n\n".join(str(s) for s in markdown_report)
+            elif not isinstance(markdown_report, str):
+                markdown_report = str(markdown_report) if markdown_report else ""
+
             if markdown_report and markdown_report.strip():
-                # Find the start of Executive Summary section
+                # Find the start of Executive Summary section and trim TOC
                 exec_summary_start = markdown_report.find("## Executive Summary\n")
                 if exec_summary_start >= 0:
                     final_content = markdown_report[exec_summary_start:]
@@ -567,23 +721,16 @@ async def run_single_research_task(
                     f"[Task {task_id}] Using running summary (no markdown report available)"
                 )
 
-        # Calculate total execution time
         task_end_time = datetime.now()
         total_duration = task_end_time - task_start_time
 
-        # Extract debugging information from result
-        debug_info = {
-            "research_loops": result.get("research_loop_count", 0),
-            "sources_gathered": len(result.get("sources_gathered", [])),
-            "knowledge_gap": result.get("knowledge_gap", ""),
-            "selected_search_tool": result.get("selected_search_tool", "unknown"),
-            "research_complete": result.get("research_complete", False),
-        }
+        # Calculate total unique sources
+        total_unique_sources = len(result.get("sources_gathered", []))
 
-        # Create comprehensive result JSON structure
+        # Create result data
         result_data = {
             "id": task_id,
-            query_field: query,  # Use the correct field name for the benchmark
+            "query": query,  # Always use "query" internally; format_result will map to correct field
             "article": final_content,
             "summary": final_summary,
             "timing": {
@@ -591,121 +738,124 @@ async def run_single_research_task(
                 "end_time": task_end_time.isoformat(),
                 "total_duration_seconds": total_duration.total_seconds(),
                 "graph_execution_seconds": graph_duration.total_seconds(),
-                "setup_time_seconds": (
-                    graph_start_time - task_start_time
-                ).total_seconds(),
             },
-            "debug_info": debug_info,
+            "debug_info": {
+                "research_loops": result.get("research_loop_count", 0),
+                "sources_gathered": total_unique_sources,
+                "knowledge_gap": result.get("knowledge_gap", ""),
+                "selected_search_tool": result.get("selected_search_tool", "unknown"),
+                "research_complete": result.get("research_complete", False),
+            },
             "content_stats": {
                 "final_content_length": len(final_content.split()),
                 "final_summary_length": len(final_summary.split()),
-                "benchmark_result_available": (
-                    bool(result.get("benchmark_result", {}))
-                    if (qa_mode or benchmark_mode)
-                    else False
-                ),
-                "content_type": (
-                    "benchmark_result"
-                    if (qa_mode or benchmark_mode)
-                    and result.get("benchmark_result", {})
-                    else "running_summary"
-                ),
             },
         }
 
-        # Format result according to benchmark requirements
+        # Format and save result
         formatted_result = dataset_manager.format_result(task_data, result_data)
-
-        # Save to individual JSON file using benchmark-specific filename
         output_filename = dataset_manager.get_output_filename(str(task_id))
         output_file = os.path.join(output_dir, output_filename)
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(formatted_result, f, indent=2, ensure_ascii=False)
 
-        # For RQA, also update the consolidated results file
-        if isinstance(dataset_manager, RQADatasetManager):
-            consolidated_file = os.path.join(output_dir, "edr_answers.json")
+        # Save trajectory
+        trajectory_data = {
+            "run_ref": run_ref,
+            "query": query,
+            "final_report_markdown": final_content,
+            "start_time": task_start_time.isoformat(),
+            "end_time": task_end_time.isoformat(),
+            "duration_seconds": total_duration.total_seconds(),
+            "configuration": {
+                "provider": provider,
+                "model": model,
+                "max_loops": max_web_search_loops,
+                "extra_effort": extra_effort,
+                "qa_mode": qa_mode,
+                "benchmark": benchmark_type,
+            },
+            "trajectory": (
+                recorder.to_dict(total_unique_sources=total_unique_sources)
+                if recorder
+                else None
+            ),
+        }
 
-            # Load existing consolidated results
-            consolidated_results = {}
-            if os.path.exists(consolidated_file):
-                try:
-                    with open(consolidated_file, "r", encoding="utf-8") as f:
-                        consolidated_results = json.load(f)
-                except (json.JSONDecodeError, IOError):
-                    logger.warning(
-                        f"Could not load existing consolidated file: {consolidated_file}"
-                    )
-                    consolidated_results = {}
+        # Save trajectory data if collection was enabled
+        if recorder:
+            trajectory_filename = f"trajectory_{task_id}.json"
+            trajectory_file = os.path.join(output_dir, trajectory_filename)
+            with open(trajectory_file, "w", encoding="utf-8") as f:
+                json.dump(trajectory_data, f, indent=2, ensure_ascii=False)
+            logger.info(f"[Task {task_id}] Trajectory saved to: {trajectory_file}")
 
-            # Add this result to consolidated results
-            consolidated_results[str(task_id)] = {"answer": formatted_result["answer"]}
+        logger.info(f"[Task {task_id}] ✅ Completed successfully")
+        logger.info(f"[Task {task_id}] Result saved to: {output_file}")
 
-            # Save updated consolidated results
-            with open(consolidated_file, "w", encoding="utf-8") as f:
-                json.dump(consolidated_results, f, indent=2, ensure_ascii=False)
-
-            logger.info(
-                f"[Task {task_id}] 📋 Updated consolidated results: {consolidated_file}"
-            )
-
-        # Performance metrics
-        throughput = (
-            len(final_content) / total_duration.total_seconds()
-            if total_duration.total_seconds() > 0
-            else 0
-        )
-
-        logger.info(
-            f"[Task {task_id}] ✅ SUCCESS - Completed in {total_duration.total_seconds():.2f}s"
-        )
-        logger.info(
-            f"[Task {task_id}] 📊 Metrics: {debug_info['research_loops']} loops, {debug_info['sources_gathered']} sources, {len(final_content):,} chars"
-        )
-        logger.info(f"[Task {task_id}] 📈 Throughput: {throughput:.0f} chars/second")
-        logger.info(f"[Task {task_id}] 💾 Saved to {output_file}")
-
-        # Update global stats
         with STATS_LOCK:
             GLOBAL_STATS["completed"] += 1
             GLOBAL_STATS["tasks_in_progress"] -= 1
 
-        return True, result_data, ""
+        return True, formatted_result, ""
 
     except Exception as e:
-        error_msg = f"Task {task_id} failed: {str(e)}"
-        logger.error(f"[Task {task_id}] ❌ ERROR: {error_msg}")
-        logger.exception(e)  # Log full traceback
+        error_msg = str(e)
+        logger.error(f"[Task {task_id}] ❌ Failed: {error_msg}")
 
-        # Update global stats
         with STATS_LOCK:
             GLOBAL_STATS["failed"] += 1
             GLOBAL_STATS["tasks_in_progress"] -= 1
 
+        # Save error info
+        error_data = {
+            "id": task_id,
+            "query": query,
+            "error": error_msg,
+            "timestamp": datetime.now().isoformat(),
+        }
+        error_file = os.path.join(output_dir, f"error_{task_id}.json")
+        with open(error_file, "w", encoding="utf-8") as f:
+            json.dump(error_data, f, indent=2, ensure_ascii=False)
+
         return False, {}, error_msg
+
+
+class ConcurrentTaskManager:
+    """Manages concurrent task execution with rate limiting."""
+
+    def __init__(self, max_concurrent: int = 5, requests_per_minute: int = 60):
+        self.semaphore = asyncio.Semaphore(max_concurrent)
+        self.rate_limit_interval = 60.0 / requests_per_minute
+        self.last_request_time = 0
+        self.lock = asyncio.Lock()
+
+    async def rate_limit(self):
+        """Apply rate limiting."""
+        async with self.lock:
+            current_time = time.time()
+            time_since_last = current_time - self.last_request_time
+            if time_since_last < self.rate_limit_interval:
+                await asyncio.sleep(self.rate_limit_interval - time_since_last)
+            self.last_request_time = time.time()
+
+    async def run_task(self, coro):
+        """Run a task with semaphore control."""
+        async with self.semaphore:
+            return await coro
 
 
 async def process_tasks_concurrently(
     tasks: List[Dict],
     dataset_manager: BenchmarkDatasetManager,
-    max_workers: int = 4,
-    max_web_search_loops: int = 1,
-    visualization_disabled: bool = True,
-    extra_effort: bool = False,
-    minimum_effort: bool = False,
-    benchmark_mode: bool = False,
-    qa_mode: bool = False,
-    provider: str = None,
-    model: str = None,
-    output_dir: str = None,
-    rate_limit_delay: float = 1.0,
+    output_dir: str,
+    provider: str,
+    model: str,
+    max_concurrent: int = 5,
+    **kwargs,
 ):
-    """Process multiple research tasks concurrently."""
-
-    logger.info(f"🚀 Starting concurrent processing of {len(tasks)} tasks")
-    logger.info(f"📊 Max workers: {max_workers}")
-    logger.info(f"⏱️  Rate limit delay: {rate_limit_delay}s")
-    logger.info(f"🤖 Using {provider}/{model}")
+    """Process multiple tasks concurrently with progress monitoring."""
+    logger.info(f"process_tasks_concurrently called with {len(tasks)} tasks")
 
     # Initialize global stats
     with STATS_LOCK:
@@ -715,28 +865,7 @@ async def process_tasks_concurrently(
         GLOBAL_STATS["tasks_started"] = 0
         GLOBAL_STATS["tasks_in_progress"] = 0
 
-    # Create task manager for resource control
-    task_manager = TaskManager(max_workers, rate_limit_delay)
-
-    # Create semaphore to limit concurrent tasks
-    semaphore = asyncio.Semaphore(max_workers)
-
-    async def run_with_semaphore(task_data):
-        async with semaphore:  # Limit concurrent tasks
-            return await run_single_research_task(
-                task_data=task_data,
-                dataset_manager=dataset_manager,
-                max_web_search_loops=max_web_search_loops,
-                visualization_disabled=visualization_disabled,
-                extra_effort=extra_effort,
-                minimum_effort=minimum_effort,
-                benchmark_mode=benchmark_mode,
-                qa_mode=qa_mode,
-                provider=provider,
-                model=model,
-                output_dir=output_dir,
-                task_manager=task_manager,
-            )
+    task_manager = ConcurrentTaskManager(max_concurrent=max_concurrent)
 
     # Start progress monitoring task
     async def monitor_progress():
@@ -771,11 +900,29 @@ async def process_tasks_concurrently(
     monitor_task = asyncio.create_task(monitor_progress())
 
     try:
-        # Create all tasks
-        task_coroutines = [run_with_semaphore(task_data) for task_data in tasks]
+        # Create task coroutines
+        logger.info(f"Creating coroutines for {len(tasks)} tasks...")
+        coroutines = [
+            task_manager.run_task(
+                run_single_research_task_with_trajectory(
+                    task_data=task,
+                    dataset_manager=dataset_manager,
+                    output_dir=output_dir,
+                    provider=provider,
+                    model=model,
+                    task_manager=task_manager,
+                    **kwargs,
+                )
+            )
+            for task in tasks
+        ]
+        logger.info(f"Created {len(coroutines)} coroutines, executing...")
 
-        # Run all tasks concurrently
-        results = await asyncio.gather(*task_coroutines, return_exceptions=True)
+        # Execute all tasks
+        results = await asyncio.gather(*coroutines, return_exceptions=True)
+
+        # Cancel monitoring
+        monitor_task.cancel()
 
         # Process results
         successful_results = []
@@ -791,9 +938,6 @@ async def process_tasks_concurrently(
                     successful_results.append(data)
                 else:
                     failed_results.append(error_msg)
-
-        # Cancel monitoring
-        monitor_task.cancel()
 
         # Final statistics
         with STATS_LOCK:
@@ -819,81 +963,72 @@ async def process_tasks_concurrently(
 
     except Exception as e:
         monitor_task.cancel()
-        logger.error(f"Critical error in concurrent processing: {e}")
         raise
 
 
-async def main():
-    """Main function to handle command line arguments and run concurrent research."""
+# ==================== Helper Functions ====================
+def get_default_file_paths(benchmark_type: str) -> Dict[str, str]:
+    """Get default file paths for different benchmarks."""
+    # Script directory (benchmarks repos should be cloned here)
+    script_dir = Path(__file__).parent
 
+    if benchmark_type == "drb":
+        return {
+            "queries_file": str(
+                script_dir
+                / "deep_research_bench"
+                / "data"
+                / "prompt_data"
+                / "query.jsonl"
+            ),
+            "output_dir": str(
+                script_dir / "deep_research_bench" / "results" / "edr_reports_gemini"
+            ),
+        }
+    elif benchmark_type == "deepconsult":
+        return {
+            "queries_file": str(
+                script_dir
+                / "ydc-deep-research-evals"
+                / "datasets"
+                / "DeepConsult"
+                / "queries.csv"
+            ),
+            "output_dir": str(
+                script_dir
+                / "ydc-deep-research-evals"
+                / "results"
+                / "edr_reports_gemini"
+            ),
+        }
+    else:
+        raise ValueError(f"Unknown benchmark type: {benchmark_type}")
+
+
+# ==================== Main ====================
+def main():
     parser = argparse.ArgumentParser(
-        description="Run deep research agent concurrently on multiple queries",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Run DRB benchmark (default)
-  python run_research_concurrent.py --benchmark-type drb --max-workers 4 --max-loops 1
-  
-  # Run ResearchQA benchmark  
-  python run_research_concurrent.py --benchmark-type rqa --max-workers 2 --limit 10
-  
-  # Run DeepConsult benchmark with regular mode and max 5 loops
-  python run_research_concurrent.py --benchmark-type deepconsult --max-workers 4 --max-loops 5
-  
-  # Custom configuration for RQA
-  python run_research_concurrent.py --benchmark-type rqa --provider anthropic --model claude-3-5-sonnet --max-workers 4
-  
-  # Process specific task IDs
-  python run_research_concurrent.py --benchmark-type rqa --task-ids "0,1,2,3,4" --max-workers 2
-        """,
-    )
-
-    # Configuration arguments
-    parser.add_argument(
-        "--max-workers",
-        type=int,
-        default=4,
-        help="Maximum number of concurrent workers (default: 4)",
+        description="Run research benchmarks concurrently (DRB and DeepConsult only). Optional trajectory capture via --collect-traj."
     )
     parser.add_argument(
-        "--max-loops",
-        type=int,
-        default=1,
-        help="Maximum number of web search loops per task (default: 1)",
+        "--benchmark",
+        type=str,
+        required=True,
+        choices=["drb", "deepconsult"],
+        help="Benchmark to run",
     )
     parser.add_argument(
-        "--rate-limit",
-        type=float,
-        default=1.0,
-        help="Delay between API requests in seconds (default: 1.0)",
+        "--input",
+        type=str,
+        default=None,
+        help="Input file (CSV for DeepConsult, JSONL for DRB). If not specified, uses default path.",
     )
     parser.add_argument(
-        "--disable-visualizations",
-        action="store_true",
-        default=True,
-        help="Disable visualization generation (default: True)",
+        "--output_dir",
+        type=str,
+        default=None,
+        help="Output directory. If not specified, uses default path.",
     )
-    parser.add_argument(
-        "--extra-effort",
-        action="store_true",
-        help="Use extra effort mode for more thorough research",
-    )
-    parser.add_argument(
-        "--minimum-effort",
-        action="store_true",
-        help="Use minimum effort mode for faster research",
-    )
-    parser.add_argument(
-        "--benchmark-mode", action="store_true", help="Run in benchmark mode"
-    )
-    parser.add_argument(
-        "--benchmark-type",
-        choices=["drb", "rqa", "deepconsult"],
-        default="drb",
-        help="Benchmark type: 'drb' for Deep Research Bench (default), 'rqa' for ResearchQA, or 'deepconsult' for DeepConsult CSV dataset",
-    )
-
-    # LLM configuration
     parser.add_argument(
         "--provider",
         choices=["openai", "anthropic", "groq", "google"],
@@ -905,231 +1040,108 @@ Examples:
         default="gemini-2.5-pro",
         help="LLM model name (e.g., 'o3-mini', 'claude-3-5-sonnet', 'gemini-2.5-pro')",
     )
-
-    # File paths (optional - defaults based on benchmark type)
+    parser.add_argument("--max_loops", type=int, default=10, help="Max research loops")
     parser.add_argument(
-        "--queries-file",
-        type=str,
-        help="Path to queries file (defaults based on benchmark type)",
+        "--max_concurrent", type=int, default=5, help="Max concurrent tasks"
+    )
+    parser.add_argument("--limit", type=int, default=None, help="Limit number of tasks")
+    parser.add_argument(
+        "--task_ids", type=str, default=None, help="Comma-separated task IDs"
+    )
+    parser.add_argument("--extra_effort", action="store_true", help="Extra effort mode")
+    parser.add_argument(
+        "--minimum_effort", action="store_true", help="Minimum effort mode"
     )
     parser.add_argument(
-        "--output-dir",
-        type=str,
-        help="Output directory for storing generated reports (defaults based on benchmark type)",
-    )
-
-    # Task filtering
-    parser.add_argument(
-        "--task-ids",
-        type=str,
-        help="Comma-separated list of specific task IDs to process (e.g., '1,5,10')",
-    )
-    parser.add_argument(
-        "--limit", type=int, help="Limit number of tasks to process (for testing)"
+        "--collect-traj",
+        action="store_true",
+        help="Collect detailed trajectory data (disabled by default for benchmarks)",
     )
 
     args = parser.parse_args()
 
-    # Get dataset manager and default paths
-    try:
-        dataset_manager = get_dataset_manager(args.benchmark_type)
-        default_paths = get_default_file_paths(args.benchmark_type)
-    except ValueError as e:
-        logger.error(f"❌ ERROR: {e}")
-        return 1
-
-    # Use provided paths or defaults
-    queries_file = args.queries_file or default_paths["queries_file"]
+    # Get default paths if not specified
+    default_paths = get_default_file_paths(args.benchmark)
+    input_file = args.input or default_paths["queries_file"]
     output_dir = args.output_dir or default_paths["output_dir"]
-
-    # Get processing configuration from dataset manager
-    processing_config = dataset_manager.get_processing_config()
-
-    # Override max_loops with benchmark-specific default if not specified
-    if (
-        args.max_loops == 1
-    ):  # Default value, might want to use benchmark-specific default
-        max_loops = processing_config["max_loops_default"]
-    else:
-        max_loops = args.max_loops
-
-    # Set benchmark mode based on dataset manager config (can be overridden by args)
-    benchmark_mode = args.benchmark_mode or processing_config["benchmark_mode"]
-    qa_mode = processing_config["qa_mode"]
-
-    logger.info(f"🎯 Benchmark type: {args.benchmark_type.upper()}")
-    logger.info(f"📋 Queries file: {queries_file}")
-    logger.info(f"📁 Output directory: {output_dir}")
-    logger.info(f"🔄 Max loops: {max_loops}")
-    logger.info(f"🧪 Benchmark mode: {benchmark_mode}")
-    logger.info(f"❓ QA mode: {qa_mode}")
-
-    # Check for required environment variables
-    required_vars = []
-    provider = args.provider or os.environ.get("LLM_PROVIDER", "openai")
-
-    if provider == "openai":
-        required_vars.append("OPENAI_API_KEY")
-    elif provider == "anthropic":
-        required_vars.append("ANTHROPIC_API_KEY")
-    elif provider == "groq":
-        required_vars.append("GROQ_API_KEY")
-    elif provider == "google":
-        required_vars.extend(["GOOGLE_CLOUD_PROJECT"])
-
-    # Always need search API
-    required_vars.append("TAVILY_API_KEY")
-
-    missing_vars = [var for var in required_vars if not os.environ.get(var)]
-
-    if missing_vars:
-        logger.error("❌ ERROR: Missing required environment variables:")
-        for var in missing_vars:
-            logger.error(f"   {var}")
-        logger.error("\nPlease set these environment variables before running.")
-        return 1
 
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
 
+    # Select dataset manager
+    if args.benchmark == "drb":
+        dataset_manager = DRBDatasetManager()
+    else:
+        dataset_manager = DeepConsultDatasetManager()
+
+    # Parse task IDs if provided
+    task_ids = None
+    if args.task_ids:
+        task_ids = [int(x.strip()) for x in args.task_ids.split(",")]
+
+    # Load tasks
+    logger.info(f"Loading tasks from {input_file}")
+    tasks = dataset_manager.load_queries(
+        input_file, task_ids=task_ids, limit=args.limit
+    )
+    logger.info(f"Loaded {len(tasks)} tasks")
+
+    if not tasks:
+        logger.error("No tasks to process!")
+        sys.exit(1)
+
+    # Log first task for debugging
+    if tasks:
+        logger.info(f"First task: {tasks[0]}")
+
+    # Get processing config
+    config = dataset_manager.get_processing_config()
+
+    # Start execution
+    GLOBAL_STATS["start_time"] = time.time()
+    logger.info(f"Starting concurrent execution with {args.max_concurrent} workers")
+
+    # Run tasks
     try:
-        # Load queries using dataset manager
-        task_ids_list = None
-        if args.task_ids:
-            task_ids_list = [int(x.strip()) for x in args.task_ids.split(",")]
-
-        queries = dataset_manager.load_queries(queries_file, task_ids_list, args.limit)
-
-        if not queries:
-            logger.error("No queries found to process")
-            return 1
-
-        # Set environment variables for configuration
-        original_max_loops = os.environ.get("MAX_WEB_RESEARCH_LOOPS")
-        os.environ["MAX_WEB_RESEARCH_LOOPS"] = str(max_loops)
-        if args.provider:
-            os.environ["LLM_PROVIDER"] = args.provider
-        if args.model:
-            os.environ["LLM_MODEL"] = args.model
-
-        try:
-            # Process tasks concurrently
-            successful_results, failed_results = await process_tasks_concurrently(
-                tasks=queries,
+        successful_results, failed_results = asyncio.run(
+            process_tasks_concurrently(
+                tasks=tasks,
                 dataset_manager=dataset_manager,
-                max_workers=args.max_workers,
-                max_web_search_loops=max_loops,
-                visualization_disabled=args.disable_visualizations,
-                extra_effort=args.extra_effort,
-                minimum_effort=args.minimum_effort,
-                benchmark_mode=benchmark_mode,
-                qa_mode=qa_mode,
+                output_dir=output_dir,
                 provider=args.provider,
                 model=args.model,
-                output_dir=output_dir,
-                rate_limit_delay=args.rate_limit,
+                max_concurrent=args.max_concurrent,
+                max_web_search_loops=args.max_loops,
+                extra_effort=args.extra_effort,
+                minimum_effort=args.minimum_effort,
+                qa_mode=False,
+                benchmark_mode=False,
+                visualization_disabled=True,
+                collect_trajectory=args.collect_traj,
             )
-
-            # Save summary report as log file
-            summary_file = os.path.join(output_dir, "processing_summary.log")
-            success_rate = len(successful_results) / len(queries) * 100
-
-            # Calculate RQA-specific statistics if applicable
-            rqa_stats = {}
-            if args.benchmark_type == "rqa" and successful_results:
-                total_answer_length = 0
-                answer_lengths = []
-                for result in successful_results:
-                    if isinstance(result, dict) and "answer_length" in result:
-                        length = result["answer_length"]
-                        total_answer_length += length
-                        answer_lengths.append(length)
-
-                if answer_lengths:
-                    rqa_stats = {
-                        "total_answer_chars": total_answer_length,
-                        "avg_answer_length": total_answer_length / len(answer_lengths),
-                        "min_answer_length": min(answer_lengths),
-                        "max_answer_length": max(answer_lengths),
-                    }
-
-            with open(summary_file, "w", encoding="utf-8") as f:
-                f.write("=" * 80 + "\n")
-                f.write("DEEP RESEARCH CONCURRENT PROCESSING SUMMARY\n")
-                f.write("=" * 80 + "\n")
-                f.write(f"Timestamp: {datetime.now().isoformat()}\n")
-                f.write(f"Total tasks: {len(queries)}\n")
-                f.write(f"Successful: {len(successful_results)}\n")
-                f.write(f"Failed: {len(failed_results)}\n")
-                f.write(f"Success rate: {success_rate:.2f}%\n")
-                f.write("\n")
-                f.write("CONFIGURATION:\n")
-                f.write("-" * 40 + "\n")
-                f.write(f"Benchmark type: {args.benchmark_type}\n")
-                f.write(f"Max workers: {args.max_workers}\n")
-                f.write(f"Max loops: {max_loops}\n")
-                f.write(f"Rate limit: {args.rate_limit}\n")
-                f.write(f"Provider: {provider}\n")
-                f.write(f"Model: {args.model}\n")
-                f.write(f"Extra effort: {args.extra_effort}\n")
-                f.write(f"Minimum effort: {args.minimum_effort}\n")
-                f.write(f"Benchmark mode: {benchmark_mode}\n")
-                f.write(f"QA mode: {qa_mode}\n")
-
-                # Add RQA-specific statistics
-                if rqa_stats:
-                    f.write("\n")
-                    f.write("RQA STATISTICS:\n")
-                    f.write("-" * 40 + "\n")
-                    f.write(
-                        f"Total answer characters: {rqa_stats['total_answer_chars']:,}\n"
-                    )
-                    f.write(
-                        f"Average answer length: {rqa_stats['avg_answer_length']:.1f} chars\n"
-                    )
-                    f.write(
-                        f"Min answer length: {rqa_stats['min_answer_length']:,} chars\n"
-                    )
-                    f.write(
-                        f"Max answer length: {rqa_stats['max_answer_length']:,} chars\n"
-                    )
-                    f.write(f"Consolidated results: edr_answers.json\n")
-
-                if failed_results:
-                    f.write("\n")
-                    f.write("FAILED TASKS:\n")
-                    f.write("-" * 40 + "\n")
-                    for error in failed_results:
-                        f.write(f"- {error}\n")
-
-                f.write("\n")
-                f.write("=" * 80 + "\n")
-
-            logger.info(f"📊 Summary saved to: {summary_file}")
-
-            if len(successful_results) == len(queries):
-                logger.info("🎉 ALL TASKS COMPLETED SUCCESSFULLY!")
-                return 0
-            else:
-                logger.warning(f"⚠️  {len(failed_results)} tasks failed")
-                return 1
-
-        finally:
-            # Restore original environment variables
-            if original_max_loops is not None:
-                os.environ["MAX_WEB_RESEARCH_LOOPS"] = original_max_loops
-            elif "MAX_WEB_RESEARCH_LOOPS" in os.environ:
-                del os.environ["MAX_WEB_RESEARCH_LOOPS"]
-
-    except KeyboardInterrupt:
-        logger.info("\n🛑 Processing interrupted by user")
-        return 1
+        )
+        logger.info(
+            f"Completed execution: {len(successful_results)} successful, {len(failed_results)} failed"
+        )
     except Exception as e:
-        logger.error(f"\n❌ UNEXPECTED ERROR: {e}")
-        logger.exception(e)
-        return 1
+        logger.error(f"Fatal error during execution: {e}")
+        import traceback
+
+        traceback.print_exc()
+        sys.exit(1)
+
+    # Print final stats
+    end_time = time.time()
+    total_duration = end_time - GLOBAL_STATS["start_time"]
+    logger.info("\n" + "=" * 60)
+    logger.info("FINAL STATISTICS")
+    logger.info("=" * 60)
+    logger.info(f"Total completed: {GLOBAL_STATS['completed']}")
+    logger.info(f"Total failed: {GLOBAL_STATS['failed']}")
+    logger.info(f"Total duration: {total_duration:.2f}s")
+    logger.info(f"Average time per task: {total_duration / len(tasks):.2f}s")
+    logger.info("=" * 60)
 
 
 if __name__ == "__main__":
-    exit_code = asyncio.run(main())
-    sys.exit(exit_code)
+    main()
