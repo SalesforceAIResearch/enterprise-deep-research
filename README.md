@@ -12,6 +12,9 @@
   <a href="https://huggingface.co/datasets/Salesforce/EDR-200">
     <img src="https://img.shields.io/badge/🤗%20Hugging%20Face-EDR--200%20Dataset-blue" alt="HF Dataset">
   </a>
+  <a href="https://deepwiki.com/SalesforceAIResearch/enterprise-deep-research">
+    <img src="https://img.shields.io/badge/Documentation-DeepWiki-00A86B?style=flat&logo=book&logoColor=white" alt="DeepWiki Documentation">
+  </a>
   <a href="https://opensource.org/licenses/Apache-2.0">
     <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache 2.0">
   </a>
@@ -20,9 +23,6 @@
   </a>
   <a href="https://x.com/SFResearch/status/1981831647277297799">
     <img src="https://img.shields.io/badge/Follow%20us%20on-X-1DA1F2?style=flat&logo=x&logoColor=white" alt="Follow us on X">
-  </a>
-  <a href="https://deepwiki.com/SalesforceAIResearch/enterprise-deep-research">
-    <img src="https://img.shields.io/badge/Documentation-DeepWiki-00A86B?style=flat&logo=book&logoColor=white" alt="DeepWiki Documentation">
   </a>
 </p>
 
