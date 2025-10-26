@@ -39,7 +39,7 @@ We present **Enterprise Deep Research (EDR)**, a multi-agent system that integra
 We present two video demos of using EDR in web application and in Slack workspace. 
 
 > [!Note]
-> Multi-provider LLM support • Slack agent • Real-time streaming • Document analysis • Citation management Parallel processing • Specialized benchmarking • Human-in-the-loop steering
+> Multi-provider LLM support • Slack agent • Real-time streaming • Document analysis • Citation management • Parallel processing • Specialized benchmarking • Human-in-the-loop steering
 ### EDR: Web Application
 <https://github.com/user-attachments/assets/b40b6131-3b7c-4e5f-8de3-91a4047ade58>
 
