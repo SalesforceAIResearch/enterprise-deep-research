@@ -18,6 +18,12 @@
   <a href="https://github.com/SalesforceAIResearch/enterprise-deep-research/stargazers">
     <img src="https://img.shields.io/github/stars/SalesforceAIResearch/enterprise-deep-research.svg" alt="GitHub stars">
   </a>
+  <a href="https://x.com/SFResearch/status/1981831647277297799">
+    <img src="https://img.shields.io/badge/Follow%20us%20on-X-1DA1F2?style=flat&logo=x&logoColor=white" alt="Follow us on X">
+  </a>
+  <a href="https://deepwiki.com/SalesforceAIResearch/enterprise-deep-research">
+    <img src="https://img.shields.io/badge/Documentation-DeepWiki-00A86B?style=flat&logo=book&logoColor=white" alt="DeepWiki Documentation">
+  </a>
 </p>
 
 
