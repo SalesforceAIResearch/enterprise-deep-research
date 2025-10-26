@@ -24,6 +24,9 @@
   <a href="https://x.com/SFResearch/status/1981831647277297799">
     <img src="https://img.shields.io/badge/Follow%20us%20on-X-1DA1F2?style=flat&logo=x&logoColor=white" alt="Follow us on X">
   </a>
+  <a href="https://www.linkedin.com/posts/weiranyao_agenticai-deepresearch-enterpriseai-activity-7386248260388298752-Q6I4?utm_source=share&utm_medium=member_desktop&rcm=ACoAAB5LMXoBvpSjjHtk7HQatx3eDUEFvmo7azo">
+    <img src="https://img.shields.io/badge/Follow%20us%20on-LinkedIn-0077B5?style=flat&logo=linkedin&logoColor=white" alt="Follow us on LinkedIn">
+  </a>
 </p>
 
 
