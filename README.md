@@ -36,12 +36,17 @@ We present **Enterprise Deep Research (EDR)**, a multi-agent system that integra
 
 ## 🎥 Demos
 
-| EDR: Web Application | EDR: Slack Integration |
-|----------------|-------------------|
-| [![EDR: Web Application](https://img.youtube.com/vi/P8BHPiASBGg/maxresdefault.jpg)](https://www.youtube.com/watch?v=P8BHPiASBGg) | [![EDR: Slack Integration](https://img.youtube.com/vi/8tB375P4mgQ/0.jpg)](https://www.youtube.com/watch?v=8tB375P4mgQ) |
+We present two video demos of using EDR in web application and in Slack workspace. 
 
 > [!Note]
-> Multi-provider LLM support • Real-time streaming • Document analysis • Citation management • Parallel processing • Specialized benchmarking • Human-in-the-loop steering
+> Multi-provider LLM support • Slack agent • Real-time streaming • Document analysis • Citation management • Parallel processing • Specialized benchmarking • Human-in-the-loop steering
+### EDR: Web Application
+<https://github.com/user-attachments/assets/b40b6131-3b7c-4e5f-8de3-91a4047ade58>
+
+### EDR: Slack Integration
+
+<https://github.com/user-attachments/assets/dee80a9d-fa5e-4b85-903c-6370e8c4f2a3>
+
 ## 🚀 Quick Start
 
 **Requirements**: Python 3.11+ • Node.js 20.9.0+
