@@ -180,7 +180,11 @@ enterprise-deep-research/
 ├── llm_clients.py              # LLM provider clients
 ├── session_store.py            # Session management
 └── requirements.txt            # Python dependencies
+
 ```
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=SalesforceAIResearch/enterprise-deep-research&type=date&legend=top-left)](https://www.star-history.com/#SalesforceAIResearch/enterprise-deep-research&type=date&legend=top-left)
 
 ## 📜 License & Citation
 
