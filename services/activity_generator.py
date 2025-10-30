@@ -762,9 +762,13 @@ When describing search activities, mention the specific domains being searched. 
             # Build the prompt
             prompt = ActivityManager._build_prompt(activity_type, context)
 
-            # Get the LLM client - use a lightweight model
-            # Adjust based on your actual implementation
-            llm = get_llm_client("google", "gemini-2.5-flash")
+            # Get the LLM client - use configured provider instead of hardcoded Google
+            from src.configuration import Configuration
+            config = Configuration.from_runnable_config()
+            provider = config.activity_llm_provider.value if hasattr(config.activity_llm_provider, 'value') else config.activity_llm_provider
+            model = config.activity_llm_model
+
+            llm = get_llm_client(provider, model)
 
             # Get the response from the model
             response = get_model_response(llm, "", prompt)
