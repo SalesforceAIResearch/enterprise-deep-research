@@ -82,9 +82,15 @@ class ResearchTodoManager:
 
         try:
             from llm_clients import get_async_llm_client
+            from src.configuration import Configuration
 
-            llm = await get_async_llm_client("google", "gemini-2.5-flash")
-            # Set max_output_tokens for Gemini models - increased for JSON response
+            # Use configured LLM provider instead of hardcoded Google
+            config = Configuration.from_runnable_config()
+            provider = config.activity_llm_provider.value if hasattr(config.activity_llm_provider, 'value') else config.activity_llm_provider
+            model = config.activity_llm_model
+
+            llm = await get_async_llm_client(provider, model)
+            # Set max_output_tokens - increased for JSON response
             if hasattr(llm, "max_output_tokens"):
                 llm.max_output_tokens = 2048
             elif hasattr(llm, "max_tokens"):
@@ -290,9 +296,15 @@ CRITICAL: You MUST wrap your JSON array in <answer></answer> tags. Output ONLY t
         """Summarize multiple messages and create consolidated tasks"""
         try:
             from llm_clients import get_async_llm_client
+            from src.configuration import Configuration
 
-            llm = await get_async_llm_client("google", "gemini-2.5-flash")
-            # Set max_output_tokens for Gemini models
+            # Use configured LLM provider instead of hardcoded Google
+            config = Configuration.from_runnable_config()
+            provider = config.activity_llm_provider.value if hasattr(config.activity_llm_provider, 'value') else config.activity_llm_provider
+            model = config.activity_llm_model
+
+            llm = await get_async_llm_client(provider, model)
+            # Set max_output_tokens
             if hasattr(llm, "max_output_tokens"):
                 llm.max_output_tokens = 800
             elif hasattr(llm, "max_tokens"):
@@ -497,9 +509,15 @@ Return ONLY the JSON object, no other text.
         """Mark tasks as completed based on research progress"""
         try:
             from llm_clients import get_async_llm_client
+            from src.configuration import Configuration
 
-            llm = await get_async_llm_client("google", "gemini-2.5-flash")
-            # Set max_output_tokens for Gemini models
+            # Use configured LLM provider instead of hardcoded Google
+            config = Configuration.from_runnable_config()
+            provider = config.activity_llm_provider.value if hasattr(config.activity_llm_provider, 'value') else config.activity_llm_provider
+            model = config.activity_llm_model
+
+            llm = await get_async_llm_client(provider, model)
+            # Set max_output_tokens
             if hasattr(llm, "max_output_tokens"):
                 llm.max_output_tokens = 600
             elif hasattr(llm, "max_tokens"):
@@ -588,11 +606,17 @@ Return ONLY the JSON array, no other text.
         try:
             # Use LLM to intelligently parse the user message into structured tasks
             from llm_clients import get_async_llm_client
+            from src.configuration import Configuration
+
+            # Use configured LLM provider instead of hardcoded Google
+            config = Configuration.from_runnable_config()
+            provider = config.activity_llm_provider.value if hasattr(config.activity_llm_provider, 'value') else config.activity_llm_provider
+            model = config.activity_llm_model
 
             # Get LLM client (use a lightweight model for parsing)
-            llm = await get_async_llm_client("google", "gemini-2.5-flash")
+            llm = await get_async_llm_client(provider, model)
 
-            # Set max_output_tokens for Gemini models
+            # Set max_output_tokens
             if hasattr(llm, "max_output_tokens"):
                 llm.max_output_tokens = 500
             elif hasattr(llm, "max_tokens"):
