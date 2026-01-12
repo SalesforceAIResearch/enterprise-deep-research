@@ -134,7 +134,9 @@ Guidelines:
 4. If the search results don't contain the answer, explicitly state this
 5. Provide a confidence level (HIGH, MEDIUM, LOW) based on the reliability and completeness of the source information
 6. ALWAYS cite sources using numbered citations in square brackets [1][2], etc.
-7. CRITICAL: Keep your response under 300 words total. Be concise and focus on the most essential information.
+7. You should acknowledge uncertainty and conflicts; if evidence is thin or sources disagree,
+state it and explain what additional evidence would resolve it.
+8. CRITICAL: Keep your response under 300 words total. Be concise and focus on the most essential information.
 
 CRITICAL: When dealing with temporal claims (dates, current events, "current" positions):
 - Use the TIME_CONTEXT above to verify if dates make sense
@@ -275,7 +277,9 @@ Guidelines:
 4. Clearly state if some aspects of the question remain unanswered
 5. Provide a final confidence assessment for your answer
 6. ALWAYS cite  the specific sources that support your final answer using numbered citations in square brackets [1][2], etc.
-7. CRITICAL: Keep your final answer under 300 words total. Be concise and focus on the most essential information.
+7. You should acknowledge uncertainty and conflicts; if evidence is thin or sources disagree,
+state it and explain what additional evidence would resolve it.
+8. CRITICAL: Keep your final answer under 300 words total. Be concise and focus on the most essential information.
 
 CRITICAL: When synthesizing temporal information (dates, current events, "current" positions):
 - Use the TIME_CONTEXT above to verify if dates make sense

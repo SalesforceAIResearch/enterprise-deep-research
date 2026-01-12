@@ -30,6 +30,13 @@
 </p>
 
 
+## 📰  News
+- **2025/12/12**: 🥇 EDR **ranks #1** on the [LiveResearchBench leaderboard](https://livedeepresearch.github.io/#leaderboard)!
+- **2025/11/15**: Our technical report is accepted at AAAI Agentic AI Benchmarks and Applications Workshop.
+- **2025/11/13**: EDR is officially on the **[DeepResearchBench leaderboard](https://huggingface.co/spaces/muset-ai/DeepResearch-Bench-Leaderboard)**
+
+---
+
 We present **Enterprise Deep Research (EDR)**, a multi-agent system that integrate: 
 - Master Planning Agent for adaptive query decomposition.
 - Four specialized search agents (General, Academic, GitHub, LinkedIn).
@@ -204,5 +211,12 @@ Licensed under [Apache 2.0](./LICENSE.txt).
   year={2025}
 }
 ```
+
+## 📬 Contributions
+We would love to hear from the broader AI community, and we welcome any contributions, pull requests, or issues! Please refer to [contributing guidelines](./CONTRIBUTING.md).
+
+For questions, suggestions, or contributions, please contact: [Akshara Prabhakar](https://aksh555.github.io/)
+
+
 
 **Acknowledgments**: Built on [LangGraph](https://github.com/langchain-ai/langgraph), [Tavily](https://tavily.com), [React](https://reactjs.org/), [Tailwind CSS](https://tailwindcss.com/), and [FastAPI](https://fastapi.tiangolo.com/).

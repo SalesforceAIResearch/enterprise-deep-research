@@ -51,3 +51,4 @@ whisper>=1.1.10
 
 # Additional utilities for file handling
 aiofiles>=23.2.1
+datasets>=3.5.0

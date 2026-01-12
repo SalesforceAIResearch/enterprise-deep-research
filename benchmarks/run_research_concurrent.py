@@ -309,6 +309,208 @@ class DeepConsultDatasetManager(BenchmarkDatasetManager):
         return f"deepconsult_{task_id}.json"
 
 
+class HealthBenchDatasetManager(BenchmarkDatasetManager):
+    """Dataset manager for HealthBench evaluation."""
+
+    def load_queries(
+        self,
+        file_path: str,
+        task_ids: Optional[List[int]] = None,
+        limit: Optional[int] = None,
+    ) -> List[Dict]:
+        """Load queries from HealthBench JSON file (final_run_100 or final_run_1000)."""
+        queries = []
+        try:
+            logger.info(f"📋 Loading HealthBench data from {file_path}")
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                data = data
+
+            # data is a list of HealthBench examples
+            for example in data:
+                query_data = {
+                    "id": example["id"],  # UUID from HealthBench
+                    "query": example["problem"],  # Formatted problem string
+                    "original_data": example,  # Keep all original data for eval
+                }
+                queries.append(query_data)
+
+            logger.info(f"📋 Loaded {len(queries)} HealthBench queries")
+
+            # Filter by task IDs if specified (using string IDs for HealthBench)
+            if task_ids:
+                # Convert task_ids to strings for comparison
+                task_ids_str = [str(tid) for tid in task_ids]
+                queries = [q for q in queries if q["id"] in task_ids_str]
+                logger.info(f"🎯 Filtered to {len(queries)} specific tasks")
+
+            # Apply limit if specified
+            if limit:
+                queries = queries[:limit]
+                logger.info(f"🔢 Limited to first {len(queries)} tasks")
+
+            return queries
+
+        except FileNotFoundError:
+            logger.error(f"HealthBench file not found: {file_path}")
+            raise
+        except Exception as e:
+            logger.error(f"Error loading HealthBench data: {e}")
+            raise
+
+    def get_query_field(self) -> str:
+        return "query"
+
+    def get_processing_config(self) -> Dict:
+        return {
+            "max_loops": 5,  # 3 loops for medical questions
+            "extra_effort": False,
+            "qa_mode": False,
+            "benchmark_mode": False,  # Use benchmark mode for citations
+        }
+
+    def format_result(self, task_data: Dict, result_data: Dict) -> Dict:
+        """Format result for HealthBench - preserve all data needed for DR Tulu eval."""
+        return {
+            "id": result_data["id"],
+            "query": result_data["query"],
+            "article": result_data["article"],
+            "original_data": task_data.get(
+                "original_data", {}
+            ),  # Preserve HealthBench metadata
+            "metadata": {
+                "timing": result_data["timing"],
+                "debug_info": result_data["debug_info"],
+                "content_stats": result_data["content_stats"],
+            },
+        }
+
+    def get_output_filename(self, task_id: str) -> str:
+        return f"{task_id}.json"
+
+
+class HFDatasetManager(BenchmarkDatasetManager):
+    """Dataset manager for HuggingFace datasets (e.g., LiveResearchBench)."""
+
+    def __init__(
+        self,
+        dataset_name: str,
+        query_column: str,
+        config_name: Optional[str] = None,
+        split: str = "test",
+        mode: str = "regular",
+        max_loops: int = 5,
+        provider: str = "google",
+        model: str = "gemini-2.5-pro",
+    ):
+        """
+        Initialize HuggingFace dataset manager.
+
+        Args:
+            dataset_name: HF dataset path (e.g., "Salesforce/LiveResearchBench")
+            query_column: Column name containing queries (e.g., "question_no_placeholder")
+            config_name: Optional config name for the dataset (e.g., "question_only")
+            split: Dataset split to load (default: "test")
+            mode: Processing mode - "regular", "qa", or "benchmark" (default: "regular")
+            max_loops: Maximum research loops (default: 5)
+            provider: LLM provider (default: "google")
+            model: LLM model name (default: "gemini-2.5-pro")
+        """
+        self.dataset_name = dataset_name
+        self.query_column = query_column
+        self.config_name = config_name
+        self.split = split
+        self.mode = mode
+        self.max_loops = max_loops
+        self.provider = provider
+        self.model = model
+
+    def load_queries(
+        self,
+        file_path: str,  # Not used for HF datasets, kept for interface compatibility
+        task_ids: Optional[List[int]] = None,
+        limit: Optional[int] = None,
+    ) -> List[Dict]:
+        """Load queries from HuggingFace dataset."""
+        try:
+            from datasets import load_dataset
+
+            logger.info(f"📥 Loading HuggingFace dataset: {self.dataset_name}")
+            if self.config_name:
+                logger.info(f"   Config: {self.config_name}")
+            logger.info(f"   Split: {self.split}")
+            logger.info(f"   Query column: {self.query_column}")
+
+            # Load dataset
+            if self.config_name:
+                dataset = load_dataset(
+                    self.dataset_name, self.config_name, split=self.split
+                )
+            else:
+                dataset = load_dataset(self.dataset_name, split=self.split)
+
+            queries = []
+            for i, example in enumerate(dataset):
+                # Get query from specified column
+                query = example.get(self.query_column, "")
+                if isinstance(query, list):
+                    query = " ".join(str(item) for item in query)
+                elif not isinstance(query, str):
+                    query = str(query)
+
+                query = query.strip()
+                if not query:
+                    logger.warning(f"⚠️  Skipping empty query at index {i}")
+                    continue
+
+                # Use qid field as ID if available (for LiveResearchBench), otherwise use index
+                qid = example.get("qid", i)
+                query_data = {"id": qid, "index": i, "query": query}
+                queries.append(query_data)
+
+            logger.info(f"📋 Loaded {len(queries)} queries from HuggingFace dataset")
+
+            # Filter by task IDs if specified
+            if task_ids:
+                queries = [q for q in queries if q["id"] in task_ids]
+                logger.info(f"🎯 Filtered to {len(queries)} specific tasks: {task_ids}")
+
+            # Apply limit if specified
+            if limit:
+                queries = queries[:limit]
+                logger.info(f"🔢 Limited to first {len(queries)} tasks")
+
+            return queries
+
+        except ImportError:
+            logger.error(
+                "❌ HuggingFace datasets library not installed. Run: pip install datasets"
+            )
+            raise
+        except Exception as e:
+            logger.error(f"❌ Error loading HuggingFace dataset: {e}")
+            raise
+
+    def get_query_field(self) -> str:
+        return "query"
+
+    def get_processing_config(self) -> Dict:
+        return {
+            "max_loops_default": self.max_loops,
+            "benchmark_mode": self.mode == "benchmark",
+            "qa_mode": self.mode == "qa",
+            "visualization_disabled": True,
+        }
+
+    def format_result(self, task_data: Dict, result_data: Dict) -> Dict:
+        """Format result for HuggingFace dataset."""
+        return result_data
+
+    def get_output_filename(self, task_id: str) -> str:
+        # Use qid directly as filename (for LiveResearchBench compatibility)
+        return f"{task_id}.json"
+
+
 # ==================== Task Execution ====================
 async def run_single_research_task_with_trajectory(
     task_data: Dict,
@@ -324,12 +526,14 @@ async def run_single_research_task_with_trajectory(
     visualization_disabled: bool = True,
     task_manager=None,
     collect_trajectory: bool = False,
+    save_md: bool = False,
 ) -> Tuple[bool, Dict, str]:
     """
     Run a single research task with optional trajectory capture.
 
     Args:
         collect_trajectory: If True, collect detailed trajectory data (disabled by default for benchmarks)
+        save_md: If True, save markdown report as .md file immediately after generation
 
     Returns: (success: bool, result: Dict, error_message: str)
     """
@@ -342,6 +546,9 @@ async def run_single_research_task_with_trajectory(
         query = " ".join(str(item) for item in query)
     elif not isinstance(query, str):
         query = str(query)
+
+    # Preserve the original query
+    original_query = query
 
     task_start_time = datetime.now()
 
@@ -361,7 +568,7 @@ async def run_single_research_task_with_trajectory(
     recorder = None
     if collect_trajectory:
         recorder = ResearchTrajectoryRecorder()
-        recorder.query = query
+        recorder.query = original_query  # Use original query for recorder
 
     try:
         from src.state import SummaryState
@@ -381,8 +588,14 @@ async def run_single_research_task_with_trajectory(
 
         if isinstance(dataset_manager, DeepConsultDatasetManager):
             benchmark_type = "DEEPCONSULT"
-        else:
+        elif isinstance(dataset_manager, HFDatasetManager):
+            benchmark_type = "LRB"
+        elif isinstance(dataset_manager, HealthBenchDatasetManager):
+            benchmark_type = "HEALTHBENCH"
+        elif isinstance(dataset_manager, DRBDatasetManager):
             benchmark_type = "DRB"
+        else:
+            benchmark_type = "UNKNOWN"
 
         run_ref = f"EVAL_{benchmark_type}_{task_id}"
 
@@ -438,9 +651,9 @@ async def run_single_research_task_with_trajectory(
             uploaded_images=[],
             current_node=None,
             previous_node=None,
-            steering_enabled=False,
+            steering_enabled=True,
             steering_feedback=None,
-            steering_todo=None,
+            steering_todo=True,
             steering_todo_visible=False,
         )
 
@@ -730,7 +943,7 @@ async def run_single_research_task_with_trajectory(
         # Create result data
         result_data = {
             "id": task_id,
-            "query": query,  # Always use "query" internally; format_result will map to correct field
+            "query": original_query,  # Use original query
             "article": final_content,
             "summary": final_summary,
             "timing": {
@@ -759,10 +972,18 @@ async def run_single_research_task_with_trajectory(
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(formatted_result, f, indent=2, ensure_ascii=False)
 
+        # Save markdown file if requested
+        if save_md:
+            md_filename = Path(output_filename).stem + ".md"
+            md_file = os.path.join(output_dir, md_filename)
+            with open(md_file, "w", encoding="utf-8") as f:
+                f.write(final_content)
+            logger.info(f"[Task {task_id}] Markdown saved to: {md_file}")
+
         # Save trajectory
         trajectory_data = {
             "run_ref": run_ref,
-            "query": query,
+            "query": original_query,  # Use original query for trajectory too
             "final_report_markdown": final_content,
             "start_time": task_start_time.isoformat(),
             "end_time": task_end_time.isoformat(),
@@ -1001,6 +1222,24 @@ def get_default_file_paths(benchmark_type: str) -> Dict[str, str]:
                 / "edr_reports_gemini"
             ),
         }
+    elif benchmark_type == "lrb":
+        return {
+            "queries_file": "",  # Not used for HuggingFace datasets
+            "output_dir": str(
+                script_dir / "liveresearchbench" / "results" / "edr_reports_gemini"
+            ),
+        }
+    elif benchmark_type == "healthbench":
+        return {
+            "queries_file": str(
+                Path.home()
+                / "Documents"
+                / "scratch"
+                / "healthbench_data"
+                / "final_run_100.json"
+            ),
+            "output_dir": str(script_dir / "healthbench"),
+        }
     else:
         raise ValueError(f"Unknown benchmark type: {benchmark_type}")
 
@@ -1008,14 +1247,14 @@ def get_default_file_paths(benchmark_type: str) -> Dict[str, str]:
 # ==================== Main ====================
 def main():
     parser = argparse.ArgumentParser(
-        description="Run research benchmarks concurrently (DRB and DeepConsult only). Optional trajectory capture via --collect-traj."
+        description="Run research benchmarks concurrently (DRB, DeepConsult, LiveResearchBench, and HealthBench). Optional trajectory capture via --collect-traj."
     )
     parser.add_argument(
         "--benchmark",
         type=str,
         required=True,
-        choices=["drb", "deepconsult"],
-        help="Benchmark to run",
+        choices=["drb", "deepconsult", "lrb", "healthbench"],
+        help="Benchmark to run (drb, deepconsult, lrb for LiveResearchBench, or healthbench)",
     )
     parser.add_argument(
         "--input",
@@ -1040,7 +1279,12 @@ def main():
         default="gemini-2.5-pro",
         help="LLM model name (e.g., 'o3-mini', 'claude-3-5-sonnet', 'gemini-2.5-pro')",
     )
-    parser.add_argument("--max_loops", type=int, default=10, help="Max research loops")
+    parser.add_argument(
+        "--max_loops",
+        type=int,
+        default=None,
+        help="Max research loops (defaults to benchmark-specific value)",
+    )
     parser.add_argument(
         "--max_concurrent", type=int, default=5, help="Max concurrent tasks"
     )
@@ -1057,6 +1301,11 @@ def main():
         action="store_true",
         help="Collect detailed trajectory data (disabled by default for benchmarks)",
     )
+    parser.add_argument(
+        "--save_md",
+        action="store_true",
+        help="Save markdown report as .md file immediately after generation",
+    )
 
     args = parser.parse_args()
 
@@ -1071,8 +1320,24 @@ def main():
     # Select dataset manager
     if args.benchmark == "drb":
         dataset_manager = DRBDatasetManager()
-    else:
+    elif args.benchmark == "deepconsult":
         dataset_manager = DeepConsultDatasetManager()
+    elif args.benchmark == "lrb":
+        # LiveResearchBench with defaults: max_loops=5, gemini model, regular mode
+        dataset_manager = HFDatasetManager(
+            dataset_name="Salesforce/LiveResearchBench",
+            query_column="question_no_placeholder",
+            config_name="question_only",
+            split="test",
+            mode="regular",
+            max_loops=5,
+            provider=args.provider,
+            model=args.model,
+        )
+    elif args.benchmark == "healthbench":
+        dataset_manager = HealthBenchDatasetManager()
+    else:
+        raise ValueError(f"Unknown benchmark type: {args.benchmark}")
 
     # Parse task IDs if provided
     task_ids = None
@@ -1090,12 +1355,54 @@ def main():
         logger.error("No tasks to process!")
         sys.exit(1)
 
-    # Log first task for debugging
-    if tasks:
-        logger.info(f"First task: {tasks[0]}")
+    # Filter out already-processed tasks (check if output file exists in output_dir)
+    original_task_count = len(tasks)
+    filtered_tasks = []
+    skipped_tasks = []
 
-    # Get processing config
+    logger.info(f"Checking for existing files in: {output_dir}")
+
+    for task in tasks:
+        task_id = task.get("id", task.get("index", "unknown"))
+        output_filename = dataset_manager.get_output_filename(str(task_id))
+        output_file = os.path.join(output_dir, output_filename)
+
+        if os.path.exists(output_file):
+            skipped_tasks.append((task_id, "already processed"))
+            logger.info(f"⏭️  Skipping task {task_id}: already processed")
+        else:
+            filtered_tasks.append(task)
+
+    # Update tasks list
+    tasks = filtered_tasks
+
+    logger.info(f"\n{'='*80}")
+    logger.info(f"📊 TASK FILTERING SUMMARY")
+    logger.info(f"{'='*80}")
+    logger.info(f"Original tasks: {original_task_count}")
+    logger.info(f"Already processed (skipped): {len(skipped_tasks)}")
+    logger.info(f"Remaining tasks to process: {len(tasks)}")
+    logger.info(f"{'='*80}\n")
+
+    if not tasks:
+        logger.info("✅ All tasks have already been processed!")
+        sys.exit(0)
+
+    # Get processing config from dataset manager
     config = dataset_manager.get_processing_config()
+
+    # Determine max_loops: use command-line arg if provided, otherwise use dataset default
+    if args.max_loops is None:
+        max_loops = config.get("max_loops", config.get("max_loops_default", 10))
+        logger.info(f"Using dataset default max_loops: {max_loops}")
+    else:
+        max_loops = args.max_loops
+        logger.info(f"Using user-specified max_loops: {max_loops}")
+
+    # Get other config values
+    benchmark_mode = config.get("benchmark_mode", False)
+    qa_mode = config.get("qa_mode", False)
+    logger.info(f"Using benchmark_mode: {benchmark_mode}, qa_mode: {qa_mode}")
 
     # Start execution
     GLOBAL_STATS["start_time"] = time.time()
@@ -1111,13 +1418,14 @@ def main():
                 provider=args.provider,
                 model=args.model,
                 max_concurrent=args.max_concurrent,
-                max_web_search_loops=args.max_loops,
+                max_web_search_loops=max_loops,
                 extra_effort=args.extra_effort,
                 minimum_effort=args.minimum_effort,
-                qa_mode=False,
-                benchmark_mode=False,
+                qa_mode=qa_mode,  # Use config value
+                benchmark_mode=benchmark_mode,  # Use config value
                 visualization_disabled=True,
                 collect_trajectory=args.collect_traj,
+                save_md=args.save_md,
             )
         )
         logger.info(

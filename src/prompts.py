@@ -600,6 +600,7 @@ To achieve optimal balance between comprehensive coverage and meaningful depth:
    - If sources provide deep information on only certain aspects, acknowledge the imbalance
    - Note where information appears limited rather than attempting equal coverage
    - For aspects with minimal source information, clearly identify knowledge gaps
+   - You should acknowledge uncertainty and conflicts; if evidence is thin or sources disagree, state it and explain what additional evidence would resolve it
 </BREADTH_VS_DEPTH_BALANCING>
 
 <CONTENT_STRUCTURE_AND_REQUIREMENTS>
@@ -610,7 +611,7 @@ Create a well-structured, research-quality synthesis with these elements:
    - Provide context/background information
    - Organize main findings by relevant subtopics
    - Include analysis/discussion of implications
-   - End with conclusions and recommendations
+   - End with conclusions, recommendations and follow-ups
    - Use clear section headings to organize content
    - Employ bullet points or numbered lists for clarity
    - Use bold or italic formatting to emphasize key points

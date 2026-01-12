@@ -166,6 +166,30 @@ python deep_research_pairwise_evals.py \
 
 ---
 
+### 3. LiveResearchBench (LRB)
+
+A user-centric benchmark with 100 expert‑curated tasks, evaluating AI agents on their ability to retrieve, synthesize, and reason over real-world information.
+
+**Setup:**
+Automatically loads data from [Huggingface](https://huggingface.co/datasets/Salesforce/LiveResearchBench)
+
+To run LiveResearchBench evaluation:
+
+**Step 1: Produce markdown reports for the queries**
+```bash
+python run_research_concurrent.py \
+  --benchmark lrb \
+  --max_concurrent 3 \
+  --provider google \
+  --save_md \
+  --model gemini-2.5-pro
+```
+
+**Step 2: Use DeepEval for evaluation**
+This produces the required markdown file format of the reports which can be further evaluated using the [DeepEval](https://github.com/SalesforceAIResearch/LiveResearchBench?tab=readme-ov-file#basic-usage-to-evaluate-long-form-reports) pipeline.
+
+---
+
 ## 📈 Monitoring and Debugging
 
 ### 🔍 Real-time Progress Monitoring
