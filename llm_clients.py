@@ -53,6 +53,27 @@ CURRENT_DAY = datetime.now().day
 ONE_YEAR_AGO = datetime.now().replace(year=datetime.now().year - 1).strftime("%Y-%m-%d")
 YTD_START = f"{CURRENT_YEAR}-01-01"
 
+
+def _resolve_openai_auth():
+    """Select OpenAI auth with Salesforce Gateway preference."""
+    if SFR_GATEWAY_API_KEY:
+        return {
+            "api_key": OPENAI_API_KEY or "dummy",
+            "base_url": "https://gateway.salesforceresearch.ai/openai/process/v1/",
+            "default_headers": {"X-Api-Key": SFR_GATEWAY_API_KEY},
+            "using_gateway": True,
+        }
+    if not OPENAI_API_KEY:
+        raise ValueError(
+            "Neither SFR_GATEWAY_API_KEY nor OPENAI_API_KEY is set in environment"
+        )
+    return {
+        "api_key": OPENAI_API_KEY,
+        "base_url": None,
+        "default_headers": None,
+        "using_gateway": False,
+    }
+
 # Define model configurations for each provider
 MODEL_CONFIGS = {
     # Groq models
@@ -65,7 +86,7 @@ MODEL_CONFIGS = {
         "default_model": "deepseek-r1-distill-llama-70b",
         "requires_api_key": GROQ_API_KEY,
     },
-    # OpenAI models
+# OpenAI models
     "openai": {
         "available_models": [
             "gpt-4o",
@@ -75,7 +96,7 @@ MODEL_CONFIGS = {
             "o3-mini-reasoning",  # This will use o3-mini with high reasoning effort
         ],
         "default_model": "o4-mini",  # Latest and most cost-efficient reasoning model
-        "requires_api_key": OPENAI_API_KEY,
+        "requires_api_key": OPENAI_API_KEY or SFR_GATEWAY_API_KEY,
     },
     # Anthropic models
     "anthropic": {
@@ -187,7 +208,12 @@ class SimpleOpenAIClient:
     """Simple OpenAI client that doesn't use LangChain for models that don't support temperature."""
 
     def __init__(
-        self, model_name: str, api_key: str, max_tokens: int = OPENAI_MAX_TOKENS
+        self,
+        model_name: str,
+        api_key: str,
+        max_tokens: int = OPENAI_MAX_TOKENS,
+        base_url: str = None,
+        default_headers: dict = None,
     ):
         """Initialize the simple OpenAI client.
 
@@ -199,10 +225,11 @@ class SimpleOpenAIClient:
         self.model_name = model_name  # Public attribute for compatibility
         self._api_key = api_key
         self._max_tokens = max_tokens
-        self._client = openai.OpenAI(api_key="dummy",
-        base_url="https://gateway.salesforceresearch.ai/openai/process/v1/",
-        default_headers={"X-Api-Key": "cbd5333186664d57f2ed8bb08d260bf7"},
-    )
+        self._client = openai.OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            default_headers=default_headers,
+        )
 
     @traceable
     def invoke(self, messages, config=None):
@@ -1187,9 +1214,10 @@ def get_llm_client(provider, model_name=None):
             model_name=model_name,
         )
     elif provider == "openai":
-        if not OPENAI_API_KEY:
-            raise ValueError("OPENAI_API_KEY is not set in environment")
-        api_key = OPENAI_API_KEY
+        auth = _resolve_openai_auth()
+        api_key = auth["api_key"]
+        base_url = auth["base_url"]
+        default_headers = auth["default_headers"]
         if not model_name:
             model_name = MODEL_CONFIGS["openai"]["default_model"]
 
@@ -1202,6 +1230,8 @@ def get_llm_client(provider, model_name=None):
                 model_name="o4-mini",  # Use base model name for API
                 api_key=api_key,
                 max_tokens=OPENAI_MAX_TOKENS,
+                base_url=base_url,
+                default_headers=default_headers,
             )
         # For o3-mini-reasoning, use ReasoningEffortOpenAIClient
         elif model_name == "o3-mini-reasoning":
@@ -1212,6 +1242,8 @@ def get_llm_client(provider, model_name=None):
                 model_name="o3-mini",  # Use base model name
                 api_key=api_key,
                 max_tokens=OPENAI_MAX_TOKENS,
+                base_url=base_url,
+                default_headers=default_headers,
             )
         else:
             # Use standard ChatOpenAI for other models
@@ -1221,6 +1253,8 @@ def get_llm_client(provider, model_name=None):
                     "-reasoning", ""
                 ),  # Use base model name if reasoning specified
                 api_key=api_key,
+                base_url=base_url,
+                default_headers=default_headers,
                 max_tokens=OPENAI_MAX_TOKENS,  # Using variable instead of hardcoded value
                 streaming=False,
             )
@@ -1345,9 +1379,10 @@ async def get_async_llm_client(provider, model_name=None):
         )
 
     if provider == "openai":
-        if not OPENAI_API_KEY:
-            raise ValueError("OPENAI_API_KEY is not set in environment")
-        api_key = OPENAI_API_KEY
+        auth = _resolve_openai_auth()
+        api_key = auth["api_key"]
+        base_url = auth["base_url"]
+        default_headers = auth["default_headers"]
 
         # Always use standard ChatOpenAI async client
         # Strip -reasoning suffix if present, and handle o4-mini-high
@@ -1362,6 +1397,8 @@ async def get_async_llm_client(provider, model_name=None):
         return ChatOpenAI(
             model_name=effective_model_name,
             api_key=api_key,
+            base_url=base_url,
+            default_headers=default_headers,
             max_tokens=OPENAI_MAX_TOKENS,  # Using variable instead of hardcoded value
             streaming=False,  # Keep false unless streaming needed in async context
         )
