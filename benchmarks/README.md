@@ -59,6 +59,10 @@ python run_research_concurrent.py \
   --collect-traj  # Saves detailed trajectory data for analysis
 ```
 
+> Notes
+- ToDo creation and steering support can be enabled per request using `--enable-steering`. Generally this performs better.
+- The search tasks can be run in parallel via `--parallel-search` with `--parallel-max` (default 4).
+
 ---
 
 ## 🎯 Supported Benchmarks

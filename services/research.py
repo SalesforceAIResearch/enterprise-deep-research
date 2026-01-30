@@ -521,6 +521,8 @@ class ResearchService:
         uploaded_data_content: Optional[str] = None,
         uploaded_files: Optional[List[str]] = None,
         steering_enabled: bool = False,
+        parallel_search_enabled: bool = False,
+        parallel_search_max_concurrency: int = 2,
         database_info: Optional[List[Dict[str, Any]]] = None,
     ):
         """Conduct research on a given query, putting events onto a queue if provided."""
@@ -623,6 +625,8 @@ class ResearchService:
                 uploaded_knowledge=uploaded_data_content,  # Pass uploaded content to state
                 uploaded_files=uploaded_files or [],  # Pass uploaded file IDs to state
                 steering_enabled=steering_enabled,  # Enable steering if requested
+                parallel_search_enabled=parallel_search_enabled,
+                parallel_search_max_concurrency=parallel_search_max_concurrency,
                 database_info=database_info,  # Pass database information to state
             )
             logger.info(

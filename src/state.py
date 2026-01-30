@@ -131,6 +131,14 @@ class SummaryState(BaseModel):
         default=True, description="Whether to have visualizations"
     )
 
+    # Parallel search execution controls
+    parallel_search_enabled: bool = Field(
+        default=False, description="Whether to run search subtasks in parallel"
+    )
+    parallel_search_max_concurrency: int = Field(
+        default=4, description="Max concurrent search subtasks when parallelized"
+    )
+
     # Database fields for text2sql functionality
     database_info: Optional[List[Dict[str, Any]]] = Field(
         default=None,
@@ -335,8 +343,11 @@ class SummaryState(BaseModel):
 
         # Create initial plan if not done yet
         if not self.steering_todo.initial_plan_created:
+            initial_query = getattr(self, "search_query", None) or getattr(
+                self, "research_topic", ""
+            )
             await self.steering_todo.create_initial_plan(
-                initial_query=self.search_query,
+                initial_query=initial_query,
                 research_context=f"Research loop {self.research_loop_count}, summary: {self.running_summary[:500]}...",
             )
 

@@ -9,6 +9,8 @@ let lastBenchmarkMode = false;
 let lastModelProvider = null;
 let lastModelName = null;
 let lastUploadedFileContent = null; // Added to store uploaded file content
+let lastParallelEnabled = true;
+let lastParallelMax = 2;
 let isReconnecting = false;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 3;
@@ -174,7 +176,9 @@ export const startResearch = async (
   onEventHandler,
   onCompleteHandler,
   onErrorHandler,
-  enableSteering = true // Add steering parameter
+  enableSteering = true, // Add steering parameter
+  enableParallel = true,
+  parallelMax = 2
 ) => {
   console.log('[DEBUG] startResearch called with:', { query, provider, model, uploadedFileContent, databaseInfo });
 
@@ -218,6 +222,8 @@ export const startResearch = async (
     lastModelProvider = provider;
     lastModelName = model;
     lastUploadedFileContent = uploadedFileContent;
+    lastParallelEnabled = enableParallel;
+    lastParallelMax = parallelMax;
 
     // Reset research completion flag
     isResearchComplete = false;
@@ -257,7 +263,9 @@ export const startResearch = async (
       minimum_effort: minimumEffort,
       benchmark_mode: benchmarkMode,
       streaming: true,
-      steering_enabled: enableSteering  // Add steering flag
+      steering_enabled: enableSteering,  // Add steering flag
+      parallel_search_enabled: enableParallel,
+      parallel_search_max_concurrency: parallelMax
     };
 
     // Add database_info if provided
@@ -975,7 +983,21 @@ const handleConnectionLoss = (cleanupFn) => {
         // Schedule reconnection
         if (lastQuery) {
           console.log(`Attempting to reconnect for query: "${lastQuery}"`);
-          startResearch(lastQuery, lastExtraEffort, lastMinimumEffort, lastBenchmarkMode, lastModelProvider, lastModelName, lastUploadedFileContent, onEvent, onComplete, onError);
+          startResearch(
+            lastQuery,
+            lastExtraEffort,
+            lastMinimumEffort,
+            lastBenchmarkMode,
+            lastModelProvider,
+            lastModelName,
+            lastUploadedFileContent,
+            onEvent,
+            onComplete,
+            onError,
+            true,
+            lastParallelEnabled,
+            lastParallelMax
+          );
         } else {
           console.error('No previous query to reconnect to.');
           isReconnecting = false;

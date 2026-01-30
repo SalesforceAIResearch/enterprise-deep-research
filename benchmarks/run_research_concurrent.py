@@ -524,6 +524,9 @@ async def run_single_research_task_with_trajectory(
     qa_mode: bool = False,
     benchmark_mode: bool = False,
     visualization_disabled: bool = True,
+    steering_enabled: bool = False,
+    parallel_search_enabled: bool = True,
+    parallel_search_max_concurrency: int = 4,
     task_manager=None,
     collect_trajectory: bool = False,
     save_md: bool = False,
@@ -605,6 +608,8 @@ async def run_single_research_task_with_trajectory(
                 "llm_model": model,
                 "max_web_research_loops": max_web_search_loops,
                 "user_prompt": query,
+                "parallel_search_enabled": parallel_search_enabled,
+                "parallel_search_max_concurrency": parallel_search_max_concurrency,
             },
             "recursion_limit": 100,
             "tags": [
@@ -613,6 +618,8 @@ async def run_single_research_task_with_trajectory(
                 f"loops:{max_web_search_loops}",
                 f"task_id:{task_id}",
                 f"benchmark:{benchmark_type}",
+                f"parallel:{parallel_search_enabled}",
+                f"parallel_max:{parallel_search_max_concurrency}",
                 "eval_trajectory",
             ],
             "metadata": {
@@ -651,10 +658,9 @@ async def run_single_research_task_with_trajectory(
             uploaded_images=[],
             current_node=None,
             previous_node=None,
-            steering_enabled=True,
-            steering_feedback=None,
-            steering_todo=True,
-            steering_todo_visible=False,
+            steering_enabled=steering_enabled,
+            parallel_search_enabled=parallel_search_enabled,
+            parallel_search_max_concurrency=parallel_search_max_concurrency,
         )
 
         graph_start_time = datetime.now()
@@ -1306,6 +1312,22 @@ def main():
         action="store_true",
         help="Save markdown report as .md file immediately after generation",
     )
+    parser.add_argument(
+        "--enable-steering",
+        action="store_true",
+        help="Enable steering/task management during benchmark runs",
+    )
+    parser.add_argument(
+        "--parallel-search",
+        action="store_true",
+        help="Enable parallel search execution for all tasks",
+    )
+    parser.add_argument(
+        "--parallel-max",
+        type=int,
+        default=4,
+        help="Max concurrent search subtasks when parallelized",
+    )
 
     args = parser.parse_args()
 
@@ -1424,6 +1446,9 @@ def main():
                 qa_mode=qa_mode,  # Use config value
                 benchmark_mode=benchmark_mode,  # Use config value
                 visualization_disabled=True,
+                steering_enabled=args.enable_steering,
+                parallel_search_enabled=args.parallel_search,
+                parallel_search_max_concurrency=args.parallel_max,
                 collect_trajectory=args.collect_traj,
                 save_md=args.save_md,
             )

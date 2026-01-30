@@ -35,6 +35,12 @@ class ResearchRequest(BaseModel):
     steering_enabled: bool = Field(
         False, description="Whether to enable real-time steering functionality"
     )
+    parallel_search_enabled: bool = Field(
+        False, description="Whether to enable parallel search execution"
+    )
+    parallel_search_max_concurrency: int = Field(
+        2, description="Max concurrent search subtasks when parallelized"
+    )
     database_info: Optional[List[Dict[str, Any]]] = Field(
         None, description="Information about uploaded databases for text2sql functionality"
     )

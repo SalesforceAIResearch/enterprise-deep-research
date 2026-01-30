@@ -1191,7 +1191,9 @@ function ResearchPanel({
         handleResearchError(error)
         setIsActiveResearch(false)
       },
-      true // Enable steering
+      true, // Enable steering
+      true, // Enable parallel search
+      2 // Parallel max concurrency
     )
   }, [
     query,

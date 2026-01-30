@@ -1543,251 +1543,356 @@ Respond with a JSON object containing:
         # Initialize specialized agents and tools
         search_agent = SearchAgent(self.config, database_info=self.database_info)
 
-        # Initialize task results list to track what's completed
-        task_results = []
+        # Initialize result mapping to track completion by subtask index
+        task_results_map = {}
 
         # If there are no research tasks, exit early
         if "subtasks" not in research_plan or not research_plan["subtasks"]:
             print("No search tasks found in research plan.")
-            return task_results
+            return []
 
-        # Loop through each search task
-        for task in research_plan["subtasks"]:
-            if task.get("type") == "search":
-                task_index = task.get("index", 0)
-                task_query = task.get("query", {})
+        def _build_skipped_result(
+            task_index: int,
+            query_text: str,
+            tool_name: str,
+            reason: str,
+        ) -> Dict[str, Any]:
+            return {
+                "index": task_index,
+                "query": query_text,
+                "success": False,
+                "content": "",
+                "sources": [],
+                "error": reason,
+                "tool_used": tool_name,
+                "skipped": True,
+            }
 
-                # Handle both string and dict query formats
-                if isinstance(task_query, str):
-                    # If query is a string, use it directly
-                    query_text = task_query
-                    tool_name = task.get("source_type", "general_search")
-                    # Map source_type to tool names
-                    if tool_name == "general":
-                        tool_name = "general_search"
-                    elif tool_name == "academic":
-                        tool_name = "academic_search"
-                    elif tool_name == "github":
-                        tool_name = "github_search"
-                    elif tool_name == "linkedin":
-                        tool_name = "linkedin_search"
-                    elif tool_name == "text2sql":
-                        tool_name = "text2sql"
-                    else:
-                        tool_name = "general_search"  # Default fallback
+        async def _execute_single_task(
+            task_index: int, query_text: str, tool_name: str
+        ) -> Dict[str, Any]:
+            # Log this to help with tracing
+            print(f"Executing search task {task_index} with query: '{query_text}'")
+            print(f"Using search tool: {tool_name}")
 
-                    # WORKAROUND: If database_info is available and query contains SQL, use text2sql
-                    if (
-                        hasattr(self, "database_info")
-                        and self.database_info
-                        and (
-                            "SELECT" in query_text.upper()
-                            or "FROM" in query_text.upper()
-                            or "JOIN" in query_text.upper()
-                        )
-                    ):
-                        self.logger.info(
-                            f"[MasterAgent._execute_search_tasks] Detected SQL query, switching to text2sql tool"
-                        )
-                        tool_name = "text2sql"
-                elif isinstance(task_query, dict):
-                    # If query is a dict, extract the query text and tool
-                    query_text = task_query.get("query", "")
-                    tool_name = task_query.get("suggested_tool", "general_search")
+            try:
+                # Execute the search based on the tool_name
+                search_result = None
+                if tool_name == "general_search":
+                    search_result = await search_agent.general_search(query_text)
+                elif tool_name == "academic_search":
+                    search_result = await search_agent.academic_search(query_text)
+                elif tool_name == "github_search":
+                    search_result = await search_agent.github_search(query_text)
+                elif tool_name == "linkedin_search":
+                    search_result = await search_agent.linkedin_search(query_text)
+                elif tool_name == "text2sql":
+                    # Handle text2sql tool execution
+                    search_result = await search_agent.text2sql_search(query_text)
                 else:
-                    # Fallback for unexpected format
-                    query_text = str(task_query)
-                    tool_name = "general_search"
+                    # Default to general search if tool is unknown
+                    search_result = await search_agent.general_search(query_text)
 
-                # Step 3: Apply steering constraints to filter/modify queries
-                if hasattr(self.state, "steering_todo") and self.state.steering_todo:
-                    # Check if this query should be cancelled due to steering
-                    if self.state.steering_todo.should_cancel_search(query_text):
-                        print(
-                            f"[STEERING] Cancelled search task {task_index}: '{query_text}' (filtered by constraints)"
-                        )
-                        continue
-
-                    # Check for duplicate queries (avoid redundant searches)
-                    if self.state.steering_todo.is_query_duplicate(query_text):
-                        self.logger.info(
-                            f"🔁 [DEDUP] Skipping duplicate query: '{query_text[:60]}...'"
-                        )
-                        print(
-                            f"[STEERING] Skipped duplicate search task {task_index}: '{query_text}' (already executed)"
-                        )
-                        continue
-
-                    # Apply priority boost if relevant
-                    priority_boost = self.state.steering_todo.get_search_priority_boost(
-                        query_text
-                    )
-                    if priority_boost > 0:
-                        print(
-                            f"[STEERING] Boosted priority for search task {task_index}: '{query_text}' (+{priority_boost})"
-                        )
-
-                # Log this to help with tracing
-                print(f"Executing search task {task_index} with query: '{query_text}'")
-                print(f"Using search tool: {tool_name}")
-
+                # Log search tool call for trajectory capture (non-invasive, never fails research)
                 try:
-                    # Execute the search based on the tool_name
-                    search_result = None
-                    if tool_name == "general_search":
-                        search_result = await search_agent.general_search(query_text)
-                    elif tool_name == "academic_search":
-                        search_result = await search_agent.academic_search(query_text)
-                    elif tool_name == "github_search":
-                        search_result = await search_agent.github_search(query_text)
-                    elif tool_name == "linkedin_search":
-                        search_result = await search_agent.linkedin_search(query_text)
-                    elif tool_name == "text2sql":
-                        # Handle text2sql tool execution
-                        search_result = await search_agent.text2sql_search(query_text)
-                    else:
-                        # Default to general search if tool is unknown
-                        search_result = await search_agent.general_search(query_text)
-
-                    # Log search tool call for trajectory capture (non-invasive, never fails research)
-                    try:
-                        if hasattr(self, "state") and self.state:
-                            num_sources = 0
-                            sources_list = []
-                            if isinstance(search_result, dict):
-                                if "formatted_sources" in search_result:
-                                    sources_list = search_result.get(
-                                        "formatted_sources", []
-                                    )
-                                    num_sources = len(sources_list)
-                                elif "sources" in search_result:
-                                    sources_list = search_result.get("sources", [])
-                                    num_sources = len(sources_list)
-
-                            self.state.log_tool_call(
-                                tool_name=tool_name,
-                                params={"query": query_text},
-                                result_summary=f"{num_sources} sources",
-                            )
-
-                            # Log complete execution step
-                            self.state.log_execution_step(
-                                step_type="tool_execution",
-                                action=tool_name,
-                                input_data={"query": query_text},
-                                output_data={
-                                    "num_sources": num_sources,
-                                    "sources": (
-                                        sources_list[:10]
-                                        if len(sources_list) > 10
-                                        else sources_list
-                                    ),  # First 10 sources
-                                },
-                                metadata={"total_sources": num_sources},
-                            )
-                    except Exception:
-                        pass  # Logging errors should never break research
-
-                    # Extract sources from search_result for easy access in results
-                    sources = []
-
-                    # Handle different search_result formats
-                    if isinstance(search_result, dict):
-                        # Format from newer search tools that return a dict with 'formatted_sources'
-                        if "formatted_sources" in search_result:
-                            formatted_sources = search_result.get(
-                                "formatted_sources", []
-                            )
-                            # Extract source details from formatted_sources
-                            for src in formatted_sources:
-                                if isinstance(src, str) and " : " in src:
-                                    # Parse title and URL from source string (format: "title : url")
-                                    parts = src.split(" : ", 1)
-                                    if len(parts) == 2:
-                                        title, url = parts
-                                        sources.append({"title": title, "url": url})
-
-                        # If search_result directly contains 'sources' key with structured data
-                        if "sources" in search_result and isinstance(
-                            search_result["sources"], list
-                        ):
-                            for src in search_result["sources"]:
-                                if (
-                                    isinstance(src, dict)
-                                    and "title" in src
-                                    and "url" in src
-                                ):
-                                    sources.append(
-                                        {"title": src["title"], "url": src["url"]}
-                                    )
-
-                        # Extract content from search_result
-                        if "content" in search_result:
-                            content = search_result["content"]
-                        elif "raw_contents" in search_result:
-                            # Join multiple raw contents into a single string
-                            raw_contents = search_result.get("raw_contents", [])
-                            if isinstance(raw_contents, list):
-                                content = "\n\n".join(
-                                    [str(item) for item in raw_contents if item]
+                    if hasattr(self, "state") and self.state:
+                        num_sources = 0
+                        sources_list = []
+                        if isinstance(search_result, dict):
+                            if "formatted_sources" in search_result:
+                                sources_list = search_result.get(
+                                    "formatted_sources", []
                                 )
-                            else:
-                                content = str(raw_contents)
-                        else:
-                            # Fallback: convert the entire result to a string
-                            content = str(search_result)
-                    else:
-                        # Fallback for unexpected search_result type
-                        content = str(search_result)
-                        # No sources can be extracted in this case
+                                num_sources = len(sources_list)
+                            elif "sources" in search_result:
+                                sources_list = search_result.get("sources", [])
+                                num_sources = len(sources_list)
 
-                    # Build the result object with both content and sources
-                    task_result = {
-                        "index": task_index,
-                        "query": query_text,  # Store the actual query text, not the original task_query
-                        "success": True,
-                        "content": content,
-                        "sources": sources,
-                        "error": None,
-                        "tool_used": tool_name,  # Include the tool used for tracking
-                    }
-
-                    print(
-                        f"Search task {task_index} completed with {len(sources)} sources"
-                    )
-                    task_results.append(task_result)
-
-                    # Mark query as executed to prevent future duplicates
-                    if (
-                        hasattr(self.state, "steering_todo")
-                        and self.state.steering_todo
-                    ):
-                        self.state.steering_todo.mark_query_executed(query_text)
-                        self.logger.info(
-                            f"✓ [DEDUP] Marked query as executed: '{query_text[:60]}...'"
+                        self.state.log_tool_call(
+                            tool_name=tool_name,
+                            params={"query": query_text},
+                            result_summary=f"{num_sources} sources",
                         )
 
-                except Exception as e:
-                    # Log the error and continue with other tasks
-                    print(f"Error in search task {task_index}: {str(e)}")
-                    error_result = {
-                        "index": task_index,
-                        "query": query_text,  # Store the actual query text, not the original task_query
-                        "success": False,
-                        "content": "",
-                        "sources": [],
-                        "error": str(e),
-                        "tool_used": tool_name,  # Include the tool used for tracking even on error
-                    }
-                    task_results.append(error_result)
+                        # Log complete execution step
+                        self.state.log_execution_step(
+                            step_type="tool_execution",
+                            action=tool_name,
+                            input_data={"query": query_text},
+                            output_data={
+                                "num_sources": num_sources,
+                                "sources": (
+                                    sources_list[:10]
+                                    if len(sources_list) > 10
+                                    else sources_list
+                                ),  # First 10 sources
+                            },
+                            metadata={"total_sources": num_sources},
+                        )
+                except Exception:
+                    pass  # Logging errors should never break research
+
+                # Extract sources from search_result for easy access in results
+                sources = []
+
+                # Handle different search_result formats
+                if isinstance(search_result, dict):
+                    # Format from newer search tools that return a dict with 'formatted_sources'
+                    if "formatted_sources" in search_result:
+                        formatted_sources = search_result.get(
+                            "formatted_sources", []
+                        )
+                        # Extract source details from formatted_sources
+                        for src in formatted_sources:
+                            if isinstance(src, str) and " : " in src:
+                                # Parse title and URL from source string (format: "title : url")
+                                parts = src.split(" : ", 1)
+                                if len(parts) == 2:
+                                    title, url = parts
+                                    sources.append({"title": title, "url": url})
+
+                    # If search_result directly contains 'sources' key with structured data
+                    if "sources" in search_result and isinstance(
+                        search_result["sources"], list
+                    ):
+                        for src in search_result["sources"]:
+                            if (
+                                isinstance(src, dict)
+                                and "title" in src
+                                and "url" in src
+                            ):
+                                sources.append(
+                                    {"title": src["title"], "url": src["url"]}
+                                )
+
+                    # Extract content from search_result
+                    if "content" in search_result:
+                        content = search_result["content"]
+                    elif "raw_contents" in search_result:
+                        # Join multiple raw contents into a single string
+                        raw_contents = search_result.get("raw_contents", [])
+                        if isinstance(raw_contents, list):
+                            content = "\n\n".join(
+                                [str(item) for item in raw_contents if item]
+                            )
+                        else:
+                            content = str(raw_contents)
+                    else:
+                        # Fallback: convert the entire result to a string
+                        content = str(search_result)
+                else:
+                    # Fallback for unexpected search_result type
+                    content = str(search_result)
+                    # No sources can be extracted in this case
+
+                # Build the result object with both content and sources
+                task_result = {
+                    "index": task_index,
+                    "query": query_text,  # Store the actual query text, not the original task_query
+                    "success": True,
+                    "content": content,
+                    "sources": sources,
+                    "error": None,
+                    "tool_used": tool_name,  # Include the tool used for tracking
+                }
+
+                print(
+                    f"Search task {task_index} completed with {len(sources)} sources"
+                )
+
+                # Mark query as executed to prevent future duplicates
+                if (
+                    hasattr(self.state, "steering_todo")
+                    and self.state.steering_todo
+                ):
+                    self.state.steering_todo.mark_query_executed(query_text)
+                    self.logger.info(
+                        f"✓ [DEDUP] Marked query as executed: '{query_text[:60]}...'"
+                    )
+
+                return task_result
+
+            except Exception as e:
+                # Log the error and continue with other tasks
+                print(f"Error in search task {task_index}: {str(e)}")
+                return {
+                    "index": task_index,
+                    "query": query_text,  # Store the actual query text, not the original task_query
+                    "success": False,
+                    "content": "",
+                    "sources": [],
+                    "error": str(e),
+                    "tool_used": tool_name,  # Include the tool used for tracking even on error
+                }
+
+        async def _execute_with_semaphore(
+            semaphore: asyncio.Semaphore,
+            task_index: int,
+            query_text: str,
+            tool_name: str,
+        ) -> Dict[str, Any]:
+            async with semaphore:
+                return await _execute_single_task(
+                    task_index, query_text, tool_name
+                )
+
+        parallel_enabled = getattr(state, "parallel_search_enabled", False)
+        max_concurrency = getattr(state, "parallel_search_max_concurrency", 4)
+        if isinstance(getattr(state, "config", None), dict):
+            parallel_enabled = state.config.get(
+                "parallel_search_enabled", parallel_enabled
+            )
+            max_concurrency = state.config.get(
+                "parallel_search_max_concurrency", max_concurrency
+            )
+        if not isinstance(max_concurrency, int) or max_concurrency < 1:
+            max_concurrency = 1
+
+        parallel_tasks = []
+        sequential_tasks = []
+
+        # Loop through each search task and build execution lists
+        for task in research_plan["subtasks"]:
+            if task.get("type") != "search":
+                continue
+
+            task_index = task.get("index", 0)
+            task_query = task.get("query", {})
+
+            # Handle both string and dict query formats
+            if isinstance(task_query, str):
+                # If query is a string, use it directly
+                query_text = task_query
+                tool_name = task.get("source_type", "general_search")
+                # Map source_type to tool names
+                if tool_name == "general":
+                    tool_name = "general_search"
+                elif tool_name == "academic":
+                    tool_name = "academic_search"
+                elif tool_name == "github":
+                    tool_name = "github_search"
+                elif tool_name == "linkedin":
+                    tool_name = "linkedin_search"
+                elif tool_name == "text2sql":
+                    tool_name = "text2sql"
+                else:
+                    tool_name = "general_search"  # Default fallback
+
+                # WORKAROUND: If database_info is available and query contains SQL, use text2sql
+                if (
+                    hasattr(self, "database_info")
+                    and self.database_info
+                    and (
+                        "SELECT" in query_text.upper()
+                        or "FROM" in query_text.upper()
+                        or "JOIN" in query_text.upper()
+                    )
+                ):
+                    self.logger.info(
+                        f"[MasterAgent._execute_search_tasks] Detected SQL query, switching to text2sql tool"
+                    )
+                    tool_name = "text2sql"
+            elif isinstance(task_query, dict):
+                # If query is a dict, extract the query text and tool
+                query_text = task_query.get("query", "")
+                tool_name = task_query.get("suggested_tool", "general_search")
+            else:
+                # Fallback for unexpected format
+                query_text = str(task_query)
+                tool_name = "general_search"
+
+            # Step 3: Apply steering constraints to filter/modify queries
+            if hasattr(self.state, "steering_todo") and self.state.steering_todo:
+                # Check if this query should be cancelled due to steering
+                if self.state.steering_todo.should_cancel_search(query_text):
+                    print(
+                        f"[STEERING] Cancelled search task {task_index}: '{query_text}' (filtered by constraints)"
+                    )
+                    task_results_map[task_index] = _build_skipped_result(
+                        task_index,
+                        query_text,
+                        tool_name,
+                        "cancelled_by_steering",
+                    )
+                    continue
+
+                # Check for duplicate queries (avoid redundant searches)
+                if self.state.steering_todo.is_query_duplicate(query_text):
+                    self.logger.info(
+                        f"🔁 [DEDUP] Skipping duplicate query: '{query_text[:60]}...'"
+                    )
+                    print(
+                        f"[STEERING] Skipped duplicate search task {task_index}: '{query_text}' (already executed)"
+                    )
+                    task_results_map[task_index] = _build_skipped_result(
+                        task_index,
+                        query_text,
+                        tool_name,
+                        "duplicate_query",
+                    )
+                    continue
+
+                # Apply priority boost if relevant
+                priority_boost = self.state.steering_todo.get_search_priority_boost(
+                    query_text
+                )
+                if priority_boost > 0:
+                    print(
+                        f"[STEERING] Boosted priority for search task {task_index}: '{query_text}' (+{priority_boost})"
+                    )
+
+            if not parallel_enabled or tool_name == "text2sql":
+                sequential_tasks.append((task_index, query_text, tool_name))
+            else:
+                parallel_tasks.append((task_index, query_text, tool_name))
+
+        # Execute text2sql tasks sequentially (no parallelization)
+        for task_index, query_text, tool_name in sequential_tasks:
+            task_results_map[task_index] = await _execute_single_task(
+                task_index, query_text, tool_name
+            )
+
+        # Execute remaining search tasks in parallel with a concurrency cap
+        if parallel_tasks:
+            semaphore = asyncio.Semaphore(max_concurrency)
+            parallel_results = await asyncio.gather(
+                *[
+                    _execute_with_semaphore(
+                        semaphore, task_index, query_text, tool_name
+                    )
+                    for task_index, query_text, tool_name in parallel_tasks
+                ]
+            )
+            for result in parallel_results:
+                task_results_map[result["index"]] = result
+
+        # Rebuild ordered results list to preserve index-based assumptions downstream
+        if task_results_map:
+            max_index = max(task_results_map.keys())
+            ordered_results = []
+            for i in range(max_index + 1):
+                result = task_results_map.get(i)
+                if result is None:
+                    ordered_results.append(
+                        _build_skipped_result(
+                            i,
+                            "",
+                            "unknown",
+                            "no_search_result",
+                        )
+                    )
+                else:
+                    ordered_results.append(result)
+        else:
+            ordered_results = []
 
         # Log performance
         search_end_time = time.time()
         search_duration = search_end_time - search_start_time
         print(f"All search tasks completed in {search_duration:.2f} seconds")
-        print(f"Total search tasks completed: {len(task_results)}")
+        print(f"Total search tasks completed: {len(ordered_results)}")
 
-        return task_results
+        return ordered_results
 
     async def _create_initial_research_plan(self, state):
         """Create initial research plan as todo items"""

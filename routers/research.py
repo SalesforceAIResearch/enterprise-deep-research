@@ -105,6 +105,8 @@ async def deep_research(request: ResearchRequest, background_tasks: BackgroundTa
             database_info=request.database_info,  # Pass database information
             uploaded_files=request.uploaded_files,  # Pass uploaded file IDs
             steering_enabled=request.steering_enabled,  # Pass steering flag
+            parallel_search_enabled=request.parallel_search_enabled,
+            parallel_search_max_concurrency=request.parallel_search_max_concurrency,
         )
 
         # Return the stream URL
@@ -135,6 +137,8 @@ async def deep_research(request: ResearchRequest, background_tasks: BackgroundTa
                 database_info=request.database_info,  # Pass database information
                 uploaded_files=request.uploaded_files,  # Pass uploaded file IDs
                 steering_enabled=request.steering_enabled,  # Pass steering flag
+                parallel_search_enabled=request.parallel_search_enabled,
+                parallel_search_max_concurrency=request.parallel_search_max_concurrency,
             )
 
             logger.info(
