@@ -17,6 +17,7 @@ class LLMProvider(Enum):
     ANTHROPIC = "anthropic"
     GROQ = "groq"
     GOOGLE = "google"
+    MINIMAX = "minimax"
 
 
 class ActivityVerbosity(Enum):
@@ -115,9 +116,13 @@ class Configuration:
                     "llama-3.3-70b-versatile"
                     if provider_str == "groq"
                     else (
-                        "gemini-2.5-pro"
-                        if provider_str == "google"
-                        else "gemini-2.5-pro"
+                        "MiniMax-M2.7"
+                        if provider_str == "minimax"
+                        else (
+                            "gemini-2.5-pro"
+                            if provider_str == "google"
+                            else "gemini-2.5-pro"
+                        )
                     )
                 )
             )

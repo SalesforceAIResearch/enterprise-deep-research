@@ -27,6 +27,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 SFR_GATEWAY_API_KEY = os.getenv("SFR_GATEWAY_API_KEY")
 SAMBNOVA_API_KEY = os.getenv("SAMBNOVA_API_KEY")
+MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY")
 GOOGLE_CLOUD_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT")
 GOOGLE_CLOUD_LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 
@@ -44,6 +45,9 @@ ANTHROPIC_ASYNC_MAX_TOKENS = 8192
 
 # Google Gemini token limits
 GOOGLE_MAX_OUTPUT_TOKENS = 30000
+
+# MiniMax token limits
+MINIMAX_MAX_TOKENS = 16384
 
 # Get the current date in various formats for the system prompt
 CURRENT_DATE = datetime.now().strftime("%Y-%m-%d")
@@ -133,6 +137,15 @@ MODEL_CONFIGS = {
         ],
         "default_model": "gemini-2.5-pro",
         "requires_api_key": GOOGLE_CLOUD_PROJECT,
+    },
+    # MiniMax models (OpenAI-compatible API)
+    "minimax": {
+        "available_models": [
+            "MiniMax-M2.7",  # Latest flagship model (1M context)
+            "MiniMax-M2.7-highspeed",  # High-speed variant
+        ],
+        "default_model": "MiniMax-M2.7",
+        "requires_api_key": MINIMAX_API_KEY,
     },
 }
 
@@ -1180,6 +1193,110 @@ class SambNovaClient:
             yield ChatMessage(content=f"Error: {str(e)}", role="ai")
 
 
+# Custom client for MiniMax API (OpenAI-compatible)
+class MiniMaxClient:
+    """Client for MiniMax AI API via OpenAI-compatible endpoint.
+
+    MiniMax provides an OpenAI-compatible API at https://api.minimax.io/v1.
+    This client handles:
+    1. Temperature clamping to (0.0, 1.0] as required by MiniMax
+    2. Stripping <think>...</think> tags from reasoning model responses
+    3. Streaming support for long-running operations
+    """
+
+    def __init__(
+        self,
+        model_name: str,
+        api_key: str,
+        max_tokens: int = MINIMAX_MAX_TOKENS,
+    ):
+        """Initialize the MiniMax client.
+
+        Args:
+            model_name: The name of the model to use (e.g., 'MiniMax-M2.7')
+            api_key: The MiniMax API key
+            max_tokens: The maximum number of tokens to generate
+        """
+        self.model = model_name
+        self.model_name = model_name
+        self._api_key = api_key
+        self._max_tokens = max_tokens
+        self._client = openai.OpenAI(
+            api_key=api_key,
+            base_url="https://api.minimax.io/v1",
+        )
+
+    @staticmethod
+    def _clamp_temperature(temperature: float) -> float:
+        """Clamp temperature to MiniMax's valid range (0.0, 1.0]."""
+        if temperature <= 0.0:
+            return 0.01
+        if temperature > 1.0:
+            return 1.0
+        return temperature
+
+    @staticmethod
+    def _strip_think_tags(text: str) -> str:
+        """Strip <think>...</think> tags from reasoning model responses."""
+        import re
+        return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL)
+
+    @traceable
+    def invoke(self, messages, config=None):
+        """Invoke the MiniMax model with the given messages.
+
+        Args:
+            messages: List of LangChain message objects
+            config: Optional RunConfig for tracing
+
+        Returns:
+            A string with the model's response
+        """
+        try:
+            # Convert LangChain messages to OpenAI format
+            openai_messages = []
+            for msg in messages:
+                role = msg.type
+                if role == "human":
+                    role = "user"
+                elif role == "system":
+                    role = "system"
+                elif role == "ai":
+                    role = "assistant"
+                openai_messages.append({"role": role, "content": msg.content})
+
+            temperature = self._clamp_temperature(0.5)
+
+            print(f"Calling MiniMax API with model {self.model_name} (temperature={temperature})")
+            response = self._client.chat.completions.create(
+                model=self.model_name,
+                messages=openai_messages,
+                max_tokens=self._max_tokens,
+                temperature=temperature,
+                stream=True,
+            )
+
+            # Collect content from the stream
+            content_chunks = []
+            for chunk in response:
+                if hasattr(chunk, "choices") and chunk.choices:
+                    delta = chunk.choices[0].delta
+                    if hasattr(delta, "content") and delta.content:
+                        content_chunks.append(delta.content)
+                        print(".", end="", flush=True)
+
+            print("\nMiniMax streaming complete")
+            response_text = "".join(content_chunks)
+
+            # Strip think tags if present
+            response_text = self._strip_think_tags(response_text)
+
+            return response_text
+        except Exception as e:
+            print(f"[MiniMaxClient ERROR] {str(e)}")
+            raise
+
+
 def get_available_providers():
     """Returns a list of available providers based on configured API keys."""
     available_providers = []
@@ -1347,6 +1464,17 @@ def get_llm_client(provider, model_name=None):
             convert_system_message_to_human=True,  # Recommended for Gemini
             max_output_tokens=GOOGLE_MAX_OUTPUT_TOKENS,  # Using variable instead of hardcoded value
         )
+    elif provider == "minimax":
+        if not MINIMAX_API_KEY:
+            raise ValueError("MINIMAX_API_KEY is not set in environment")
+        if not model_name:
+            model_name = MODEL_CONFIGS["minimax"]["default_model"]
+        print(f"Using MiniMaxClient for {model_name}")
+        return MiniMaxClient(
+            model_name=model_name,
+            api_key=MINIMAX_API_KEY,
+            max_tokens=MINIMAX_MAX_TOKENS,
+        )
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 
@@ -1481,6 +1609,19 @@ async def get_async_llm_client(provider, model_name=None):
             convert_system_message_to_human=True,  # Recommended for Gemini
             max_output_tokens=GOOGLE_MAX_OUTPUT_TOKENS,  # Using variable instead of hardcoded value
         )
+    elif provider == "minimax":
+        if not MINIMAX_API_KEY:
+            raise ValueError("MINIMAX_API_KEY is not set in environment")
+        if not model_name:
+            model_name = MODEL_CONFIGS["minimax"]["default_model"]
+        logger.info(
+            f"[get_async_llm_client] Creating async MiniMaxClient with model {model_name}"
+        )
+        return MiniMaxClient(
+            model_name=model_name,
+            api_key=MINIMAX_API_KEY,
+            max_tokens=MINIMAX_MAX_TOKENS,
+        )
     else:
         # For providers that don't have standard async clients via Langchain yet
         supported_providers = ["openai", "anthropic"]
@@ -1488,6 +1629,8 @@ async def get_async_llm_client(provider, model_name=None):
             supported_providers.append("groq")
         if GOOGLE_CLOUD_PROJECT:  # Add google to supported list
             supported_providers.append("google")
+        if MINIMAX_API_KEY:
+            supported_providers.append("minimax")
 
         error_msg = f"Async client not supported or API key missing for provider: {provider}. Supported with keys: {', '.join(supported_providers)}."
         logger.error(f"[get_async_llm_client] {error_msg}")
