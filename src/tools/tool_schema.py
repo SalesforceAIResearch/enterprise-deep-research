@@ -155,6 +155,20 @@ class LinkedinSearchToolSchema(BaseModel):
         }
 
 
+class YouSearchToolSchema(BaseModel):
+    """Schema for the You.com search tool."""
+
+    query: str = Field(
+        ..., description="The search query string (5-10 keywords) to execute"
+    )
+
+    class Config:
+        schema_extra = {
+            "name": "you_search",
+            "description": "General web search powered by You.com. Best for broad topics, real-time information, and general knowledge queries. Useful as an alternative or complement to Tavily general search.",
+        }
+
+
 # Function specifications that can be used directly with OpenAI/LLM function calling
 SEARCH_TOOL_FUNCTIONS = [
     {
@@ -176,6 +190,11 @@ SEARCH_TOOL_FUNCTIONS = [
         "name": "linkedin_search",
         "description": "For professional and people-related topics. Best for finding information about individuals, companies, and professional backgrounds. Useful for industry experts, leadership information, and professional profiles. Suggested when topics mention people, professionals, executives, or company leadership.",
         "parameters": LinkedinSearchToolSchema.schema(),
+    },
+    {
+        "name": "you_search",
+        "description": "General web search powered by You.com. Best for broad topics, real-time information, and general knowledge queries. Useful as an alternative or complement to Tavily general search.",
+        "parameters": YouSearchToolSchema.schema(),
     },
     {
         "name": "text2sql",

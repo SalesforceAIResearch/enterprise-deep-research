@@ -13,7 +13,8 @@ from src.tools.search_tools import (
     GeneralSearchTool,
     AcademicSearchTool,
     GithubSearchTool,
-    LinkedinSearchTool
+    LinkedinSearchTool,
+    YouSearchTool,
 )
 from src.tools.text2sql_tool import Text2SQLTool
 
@@ -58,6 +59,10 @@ class SearchToolRegistry:
             linkedin_search.config = self.config
             logger.info(f"[SearchToolRegistry._register_default_tools] Created LinkedinSearchTool instance")
             
+            you_search = YouSearchTool()
+            you_search.config = self.config
+            logger.info(f"[SearchToolRegistry._register_default_tools] Created YouSearchTool instance")
+            
             text2sql = Text2SQLTool()
             text2sql.config = self.config
             logger.info(f"[SearchToolRegistry._register_default_tools] Created Text2SQLTool instance")
@@ -68,6 +73,7 @@ class SearchToolRegistry:
             self.register_tool(github_search)
             self.register_tool(academic_search)
             self.register_tool(linkedin_search)
+            self.register_tool(you_search)
             self.register_tool(text2sql)
             
             logger.info(f"Registered {len(self.tools)} default search tools")

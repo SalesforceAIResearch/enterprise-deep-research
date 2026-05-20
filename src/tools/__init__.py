@@ -9,7 +9,8 @@ from src.tools.search_tools import (
     GeneralSearchTool,
     AcademicSearchTool,
     GithubSearchTool,
-    LinkedinSearchTool
+    LinkedinSearchTool,
+    YouSearchTool,
 )
 from src.tools.registry import SearchToolRegistry
 from src.tools.executor import ToolExecutor
@@ -20,6 +21,7 @@ from src.tools.tool_schema import (
     AcademicSearchToolSchema,
     GithubSearchToolSchema,
     LinkedinSearchToolSchema,
+    YouSearchToolSchema,
     SimpleTopicResponse,
     ComplexTopicResponse,
     Subtopic
@@ -31,6 +33,7 @@ __all__ = [
     'AcademicSearchTool',
     'GithubSearchTool',
     'LinkedinSearchTool',
+    'YouSearchTool',
     'SearchToolRegistry',
     'ToolExecutor',
     'SEARCH_TOOL_FUNCTIONS',
@@ -39,6 +42,7 @@ __all__ = [
     'AcademicSearchToolSchema',
     'GithubSearchToolSchema',
     'LinkedinSearchToolSchema',
+    'YouSearchToolSchema',
     'SimpleTopicResponse',
     'ComplexTopicResponse',
     'Subtopic',
