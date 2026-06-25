@@ -96,6 +96,17 @@ const MODEL_OPTIONS = [
       </svg>
     ),
   },
+  {
+    key: "minimax-m2.7",
+    label: "MiniMax-M2.7",
+    model: "MiniMax-M2.7",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M3 4l4.5 8L3 20h3l3-5.5L12 20h3l-4.5-8L15 4h-3l-3 5.5L6 4H3z" fill="#6366F1"/>
+        <path d="M15 4l4.5 8L15 20h3l3-5.5V20h2V4h-2v5.5L18 4h-3z" fill="#6366F1"/>
+      </svg>
+    ),
+  },
 ]
 
 // Suggested questions for different modes

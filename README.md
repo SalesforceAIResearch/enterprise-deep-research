@@ -90,10 +90,11 @@ cd ai-research-assistant && npm install && npm run build && cd ..
 - `TAVILY_API_KEY` - Tavily search API key
 - **One LLM provider key:**
   - `OPENAI_API_KEY` - OpenAI API key
-  - `ANTHROPIC_API_KEY` - Anthropic API key  
+  - `ANTHROPIC_API_KEY` - Anthropic API key
   - `GROQ_API_KEY` - Groq API key
   - `GOOGLE_CLOUD_PROJECT` - Google Cloud project ID
   - `SAMBNOVA_API_KEY` - SambaNova API key
+  - `MINIMAX_API_KEY` - [MiniMax](https://www.minimax.io/) API key
 
 **Optional Settings:**
 - `LLM_PROVIDER` - Default provider (default: `openai`)
@@ -109,6 +110,7 @@ cd ai-research-assistant && npm install && npm run build && cd ..
 | **Google** | `gemini-2.5-pro` | `gemini-2.5-pro`, `gemini-1.5-pro-latest`, `gemini-1.5-flash-latest` |
 | **Groq** | `deepseek-r1-distill-llama-70b` | `deepseek-r1-distill-llama-70b`, `llama-3.3-70b-versatile`, `llama3-70b-8192` |
 | **SambaNova** | `DeepSeek-V3-0324` | `DeepSeek-V3-0324` |
+| **MiniMax** | `MiniMax-M2.7` | `MiniMax-M2.7`, `MiniMax-M2.7-highspeed` |
 
 ### Running the Application
 
