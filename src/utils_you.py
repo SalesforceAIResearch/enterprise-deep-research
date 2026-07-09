@@ -13,6 +13,11 @@ from langsmith import traceable
 
 logger = logging.getLogger("you_deep_search")
 
+# MINIMAL: ceiling — only fetches search results (no contents/extraction).
+# Uses `max_results` param (Agents API). If ydc-index.io endpoint is needed,
+# switch YOUCOM_SEARCH_URL and use `count` instead. Upgrade path: add
+# contents extraction via ydc-index.io/v1/contents if raw page text is needed.
+
 YOUCOM_SEARCH_URL = "https://api.you.com/v1/agents/search"
 MAX_RESULTS = 20
 
@@ -98,7 +103,7 @@ def you_deep_search(
             "title": item.get("title", "Untitled"),
             "url": url,
             "content": snippet,
-            "raw_content": snippet if include_raw_content else "",
+            "raw_content": item.get("markdown") if include_raw_content else None,
             "score": item.get("score", 0.5),
         })
         seen_urls.add(url)
