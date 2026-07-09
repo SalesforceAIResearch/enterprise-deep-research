@@ -10,6 +10,7 @@ from enum import Enum
 
 class SearchAPI(Enum):
     TAVILY = "tavily"
+    YOUCOM = "youcom"
 
 
 class LLMProvider(Enum):

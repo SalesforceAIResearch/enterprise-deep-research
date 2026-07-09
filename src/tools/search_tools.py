@@ -577,3 +577,102 @@ class LinkedinSearchTool(BaseTool):
                 "domains": ["linkedin.com"],
                 "citations": [],
             }
+
+
+class YouSearchTool(BaseTool):
+    """Tool for general web search using You.com API."""
+
+    name: str = "you_search"
+    description: str = "General web search powered by You.com for broad topics and real-time information"
+    args_schema: Type[BaseModel] = SearchParameters
+    config: Optional[Dict] = None
+
+    def _run(self, query: str, top_k: int = 5) -> Dict[str, Any]:
+        """Execute a web search via You.com."""
+        logger.info(f"[YouSearchTool._run] Executing You.com search for query: {query}")
+
+        try:
+            # Handle case where query is a dictionary
+            if isinstance(query, dict):
+                search_query = query.get("query", "")
+                if not search_query:
+                    for key in ["search_query", "text", "question", "input"]:
+                        if key in query and query[key]:
+                            search_query = query[key]
+                            break
+                if not search_query:
+                    search_query = str(query)
+            else:
+                search_query = query
+
+            # Try to import the real search module
+            try:
+                from src.utils_you import you_deep_search
+
+                search_results = you_deep_search(
+                    query=search_query,
+                    include_raw_content=True,
+                    top_k=top_k,
+                    config=self.config,
+                )
+
+                formatted_sources = []
+                raw_contents = []
+                domains = []
+
+                if "results" in search_results:
+                    from urllib.parse import urlparse
+
+                    for res in search_results["results"]:
+                        formatted_sources.append(
+                            f"* {res.get('title', 'Untitled')} : {res.get('url', 'No URL')}"
+                        )
+                        raw_content = res.get("raw_content")
+                        if raw_content:
+                            words = raw_content.split()
+                            if len(words) > MAX_RAW_CONTENT_WORDS:
+                                raw_content = " ".join(words[:MAX_RAW_CONTENT_WORDS])
+                            raw_contents.append(raw_content)
+
+                        url = res.get("url", "")
+                        if url:
+                            parsed = urlparse(url)
+                            domain = parsed.netloc
+                            if domain and domain not in domains:
+                                domains.append(domain)
+
+                return {
+                    "formatted_sources": formatted_sources,
+                    "raw_contents": raw_contents,
+                    "search_string": search_query,
+                    "tools": ["you_search"],
+                    "domains": domains,
+                    "citations": [],
+                }
+            except ImportError as ie:
+                logger.warning(f"[YouSearchTool._run] ImportError: {str(ie)}")
+                formatted_sources, search_str, selected_tool, domains = mock_search_tool(
+                    search_query,
+                    index=0,
+                    state=None,
+                    config=self.config,
+                    selected_tool="you_search",
+                )
+                return {
+                    "formatted_sources": formatted_sources,
+                    "raw_contents": [],
+                    "search_string": search_str,
+                    "tools": ["you_search"],
+                    "domains": domains,
+                    "citations": [],
+                }
+        except Exception as e:
+            logger.error(f"[YouSearchTool._run] Error in You.com search: {str(e)}")
+            return {
+                "formatted_sources": [],
+                "raw_contents": [],
+                "search_string": str(query),
+                "tools": ["you_search"],
+                "domains": [],
+                "citations": [],
+            }
