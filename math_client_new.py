@@ -17,7 +17,7 @@ from mcp.client.stdio import stdio_client
 from langchain_mcp_adapters.tools import load_mcp_tools
 
 # Check if OpenAI API key is set
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "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")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     print("Warning: OPENAI_API_KEY environment variable not set.")
     print("You can set it with: export OPENAI_API_KEY=your_api_key_here")
